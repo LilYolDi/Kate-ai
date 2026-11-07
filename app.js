@@ -1,3 +1,4 @@
+
 const chat = document.getElementById("chat");
 const input = document.getElementById("message");
 const send = document.getElementById("send");
@@ -7,16 +8,33 @@ const menuButton = document.getElementById("menuButton");
 const settingsButton = document.getElementById("settingsButton");
 const addButton = document.getElementById("addButton");
 const voiceExit = document.getElementById("voiceExit");
-let isSending = false;
-let isListening = false;
-let voiceEnabled = true;
+
+const SYSTEM_PROMPT = `
+Тебя зовут Катя.
+Ты дружелюбная виртуальная собеседница.
+Общайся исключительно на русском языке.
+Говори естественно, тепло, непринуждённо и эмоционально.
+Не используй заготовленные диалоги.
+Поддерживай разговор, задавай вопросы.
+Помни контекст беседы.
+Отвечай так, словно разговариваешь с человеком по телефону.
+Не делай длинных пауз без необходимости.
+`;
+
 let voiceMode = false;
-let russianVoice = null;
-let recognition = null;
+let voiceEnabled = true;
+let isSending = false;
+let socket = null;
+let microphone = null;
+let audioContext = null;
+let processor = null;
+let micSource = null;
+let muteGain = null;
+let nextPlayTime = 0;
+let playbackSources = [];
+
 let conversationHistory = [];
-const SpeechRecognition =
-  window.SpeechRecognition ||
-  window.webkitSpeechRecognition;
+
 function addMessage(text, type) {
   const div = document.createElement("div");
   div.className = `message ${type}`;
@@ -25,99 +43,466 @@ function addMessage(text, type) {
   chat.scrollTop = chat.scrollHeight;
   return div;
 }
+
 function setOrbState(state) {
   if (!orb) return;
   orb.classList.remove("listening", "speaking");
   if (state) orb.classList.add(state);
 }
-function loadRussianVoice() {
-  if (!window.speechSynthesis) return;
-  const voices = speechSynthesis.getVoices();
-  russianVoice =
-    voices.find(v => v.lang.toLowerCase() === "ru-ru") ||
-    voices.find(v => v.lang.toLowerCase().startsWith("ru")) ||
-    null;
+
+function setVoiceButton(active) {
+  voice.textContent = active ? "■" : "🎤";
 }
-if ("speechSynthesis" in window) {
-  loadRussianVoice();
-  speechSynthesis.onvoiceschanged = loadRussianVoice;
-}
-// Остановка голоса
-function stopSpeaking() {
-  if ("speechSynthesis" in window) {
-    speechSynthesis.cancel();
+
+function base64FromBytes(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(i, i + chunkSize)
+    );
   }
+
+  return btoa(binary);
+}
+
+function base64ToBytes(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return bytes;
+}
+
+function convertToPCM16(float32) {
+  const pcm = new Int16Array(float32.length);
+
+  for (let i = 0; i < float32.length; i++) {
+    const sample = Math.max(-1, Math.min(1, float32[i]));
+    pcm[i] = sample < 0
+      ? sample * 32768
+      : sample * 32767;
+  }
+
+  return pcm;
+}
+
+function resampleAudio(inputData, inputRate, outputRate) {
+  if (inputRate === outputRate) {
+    return inputData;
+  }
+
+  const ratio = inputRate / outputRate;
+  const newLength = Math.floor(inputData.length / ratio);
+  const result = new Float32Array(newLength);
+
+  for (let i = 0; i < newLength; i++) {
+    const position = i * ratio;
+    const index = Math.floor(position);
+    const fraction = position - index;
+
+    const a = inputData[index] || 0;
+    const b = inputData[index + 1] || a;
+
+    result[i] = a + (b - a) * fraction;
+  }
+
+  return result;
+}
+
+function stopPlayback() {
+  playbackSources.forEach(source => {
+    try {
+      source.stop();
+    } catch {}
+  });
+
+  playbackSources = [];
+
+  if (audioContext) {
+    nextPlayTime = audioContext.currentTime;
+  }
+
   setOrbState("");
 }
-// Включение микрофона
-function startListening() {
-  if (!voiceMode || !recognition || isSending) return;
-  if (isListening) return;
-  if (speechSynthesis.speaking) return;
+
+function playAudio(base64) {
+  if (!audioContext || !voiceMode) return;
+
   try {
-    recognition.start();
-  } catch (error) {
-    console.log("Микрофон пока занят");
-  }
-}
-// Выключение голосового режима
-function stopVoiceMode() {
-  voiceMode = false;
-  if (recognition && isListening) {
-    recognition.stop();
-  }
-  stopSpeaking();
-  voice.textContent = "🎤";
-  setOrbState("");
-  addMessage("Голосовой режим выключен.", "katya");
-}
-// ГОЛОСОВОЙ ОТВЕТ КАТИ
-function speak(text) {
-  if (!voiceEnabled || !("speechSynthesis" in window)) {
-    if (voiceMode) {
-      setTimeout(startListening, 500);
+    const bytes = base64ToBytes(base64);
+    const pcm = new Int16Array(
+      bytes.buffer,
+      bytes.byteOffset,
+      Math.floor(bytes.byteLength / 2)
+    );
+
+    const samples = new Float32Array(pcm.length);
+
+    for (let i = 0; i < pcm.length; i++) {
+      samples[i] = pcm[i] / 32768;
     }
+
+    const buffer = audioContext.createBuffer(
+      1,
+      samples.length,
+      24000
+    );
+
+    buffer.copyToChannel(samples, 0);
+
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContext.destination);
+
+    const startAt = Math.max(
+      audioContext.currentTime + 0.03,
+      nextPlayTime
+    );
+
+    source.start(startAt);
+    nextPlayTime = startAt + buffer.duration;
+
+    playbackSources.push(source);
+
+    source.onended = () => {
+      playbackSources = playbackSources.filter(
+        item => item !== source
+      );
+
+      if (
+        playbackSources.length === 0 &&
+        voiceMode
+      ) {
+        setOrbState("listening");
+      }
+    };
+
+    setOrbState("speaking");
+  } catch (error) {
+    console.error("Ошибка воспроизведения:", error);
+  }
+}
+
+function sendMicrophoneAudio(float32) {
+  if (
+    !socket ||
+    socket.readyState !== WebSocket.OPEN ||
+    !voiceMode
+  ) {
     return;
   }
-  speechSynthesis.cancel();
-  loadRussianVoice();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "ru-RU";
-  utterance.rate = 0.95;
-  utterance.pitch = 1.05;
-  utterance.volume = 1;
-  if (russianVoice) {
-    utterance.voice = russianVoice;
-  }
-  utterance.onstart = () => {
-    setOrbState("speaking");
-  };
-  utterance.onend = () => {
-    setOrbState("");
-    // После ответа Катя снова слушает
-    if (voiceMode) {
-      setTimeout(startListening, 600);
+
+  const resampled = resampleAudio(
+    float32,
+    audioContext.sampleRate,
+    16000
+  );
+
+  const pcm = convertToPCM16(resampled);
+
+  socket.send(JSON.stringify({
+    realtimeInput: {
+      audio: {
+        data: base64FromBytes(
+          new Uint8Array(pcm.buffer)
+        ),
+        mimeType: "audio/pcm;rate=16000"
+      }
     }
-  };
-  utterance.onerror = event => {
-    console.error("Ошибка голоса:", event.error);
-    setOrbState("");
-    if (voiceMode) {
-      setTimeout(startListening, 1000);
-    }
-  };
-  speechSynthesis.resume();
-  speechSynthesis.speak(utterance);
+  }));
 }
-// ОТПРАВКА СООБЩЕНИЯ GEMINI
+
+async function startMicrophone() {
+  microphone = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    }
+  });
+
+  audioContext = new (
+    window.AudioContext ||
+    window.webkitAudioContext
+  )();
+
+  await audioContext.resume();
+
+  micSource = audioContext.createMediaStreamSource(
+    microphone
+  );
+
+  processor = audioContext.createScriptProcessor(
+    4096,
+    1,
+    1
+  );
+
+  muteGain = audioContext.createGain();
+  muteGain.gain.value = 0;
+
+  processor.onaudioprocess = event => {
+    if (!voiceMode) return;
+
+    const inputData =
+      event.inputBuffer.getChannelData(0);
+
+    sendMicrophoneAudio(inputData);
+  };
+
+  micSource.connect(processor);
+  processor.connect(muteGain);
+  muteGain.connect(audioContext.destination);
+}
+
+async function startVoiceMode() {
+  if (voiceMode) return;
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    addMessage(
+      "Браузер не разрешает доступ к микрофону. Открой сайт через HTTPS.",
+      "katya"
+    );
+    return;
+  }
+
+  voiceMode = true;
+  setVoiceButton(true);
+  setOrbState("listening");
+
+  addMessage("Подключаю голосовую связь...", "katya");
+
+  try {
+    const tokenResponse = await fetch("/api/live-token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+
+    const tokenData = await tokenResponse.json();
+
+    if (!tokenResponse.ok || !tokenData.token) {
+      throw new Error(
+        tokenData.error || "Не удалось получить токен Gemini"
+      );
+    }
+
+    socket = new WebSocket(
+      "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=" +
+      encodeURIComponent(tokenData.token)
+    );
+
+    socket.onopen = async () => {
+      if (!voiceMode) return;
+
+      socket.send(JSON.stringify({
+        setup: {
+          model: "models/gemini-3.8-live",
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: "Kore"
+                }
+              }
+            }
+          },
+          systemInstruction: {
+            parts: [
+              { text: SYSTEM_PROMPT }
+            ]
+          }
+        }
+      }));
+
+      try {
+        await startMicrophone();
+
+        if (voiceMode) {
+          addMessage(
+            "Я тебя слышу. Давай поговорим ❤️",
+            "katya"
+          );
+          setOrbState("listening");
+        }
+      } catch (error) {
+        addMessage(
+          "Не удалось включить микрофон: " + error.message,
+          "katya"
+        );
+        stopVoiceMode(false);
+      }
+    };
+
+    socket.onmessage = event => {
+      let data;
+
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+
+      if (data.error) {
+        addMessage(
+          "Ошибка Gemini: " +
+          (data.error.message || "Неизвестная ошибка"),
+          "katya"
+        );
+        return;
+      }
+
+      const content = data.serverContent;
+
+      if (!content) return;
+
+      if (content.interrupted) {
+        stopPlayback();
+        setOrbState("listening");
+      }
+
+      if (content.modelTurn?.parts) {
+        for (const part of content.modelTurn.parts) {
+          if (part.inlineData?.data) {
+            playAudio(part.inlineData.data);
+          }
+        }
+      }
+
+      if (content.outputTranscription?.text) {
+        addMessage(
+          content.outputTranscription.text,
+          "katya"
+        );
+      }
+
+      if (content.inputTranscription?.text) {
+        addMessage(
+          content.inputTranscription.text,
+          "user"
+        );
+      }
+
+      if (content.turnComplete) {
+        if (playbackSources.length === 0) {
+          setOrbState("listening");
+        }
+      }
+    };
+
+    socket.onerror = () => {
+      if (voiceMode) {
+        addMessage(
+          "Ошибка соединения с голосовым сервером.",
+          "katya"
+        );
+      }
+    };
+
+    socket.onclose = event => {
+      if (voiceMode) {
+        addMessage(
+          "Голосовое соединение закрыто. Код: " +
+          event.code,
+          "katya"
+        );
+        stopVoiceMode(false);
+      }
+    };
+
+  } catch (error) {
+    addMessage(
+      "Не удалось подключить Катю: " + error.message,
+      "katya"
+    );
+
+    stopVoiceMode(false);
+  }
+}
+
+function stopVoiceMode(showMessage = true) {
+  voiceMode = false;
+
+  if (socket) {
+    try {
+      socket.close();
+    } catch {}
+    socket = null;
+  }
+
+  if (processor) {
+    processor.disconnect();
+    processor.onaudioprocess = null;
+    processor = null;
+  }
+
+  if (micSource) {
+    micSource.disconnect();
+    micSource = null;
+  }
+
+  if (muteGain) {
+    muteGain.disconnect();
+    muteGain = null;
+  }
+
+  if (microphone) {
+    microphone.getTracks().forEach(track => track.stop());
+    microphone = null;
+  }
+
+  if (audioContext) {
+    audioContext.close();
+    audioContext = null;
+  }
+
+  playbackSources = [];
+  nextPlayTime = 0;
+
+  setVoiceButton(false);
+  setOrbState("");
+
+  if (showMessage) {
+    addMessage("Голосовой режим выключен.", "katya");
+  }
+}
+
 async function sendMessage() {
   const message = input.value.trim();
+
   if (!message || isSending) return;
+
+  if (
+    voiceMode &&
+    socket &&
+    socket.readyState === WebSocket.OPEN
+  ) {
+    socket.send(JSON.stringify({
+      realtimeInput: {
+        text: message
+      }
+    }));
+
+    addMessage(message, "user");
+    input.value = "";
+    return;
+  }
+
   isSending = true;
   addMessage(message, "user");
   input.value = "";
   send.disabled = true;
+
   const loading = addMessage("Катя думает...", "katya");
+
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
@@ -129,155 +514,90 @@ async function sendMessage() {
         history: conversationHistory
       })
     });
+
     const data = await response.json();
+
     if (!response.ok) {
       throw new Error(data.error || "Ошибка сервера");
     }
+
     if (!data.answer) {
       throw new Error("Катя не получила ответ");
     }
+
     conversationHistory.push(
       { role: "user", text: message },
       { role: "model", text: data.answer }
     );
-    conversationHistory =
-      conversationHistory.slice(-30);
+
+    conversationHistory = conversationHistory.slice(-30);
+
     loading.remove();
     addMessage(data.answer, "katya");
-    // Катя обязательно озвучивает ответ
-    if (voiceEnabled) {
-      speak(data.answer);
-    }
+
   } catch (error) {
     loading.remove();
-    addMessage(
-      "Ошибка: " + error.message,
-      "katya"
-    );
-    if (voiceMode) {
-      setTimeout(startListening, 1000);
-    }
+    addMessage("Ошибка: " + error.message, "katya");
   } finally {
     isSending = false;
     send.disabled = false;
   }
 }
-// Кнопка отправки текста
+
 send.addEventListener("click", sendMessage);
+
 input.addEventListener("keydown", event => {
   if (event.key === "Enter") {
     event.preventDefault();
     sendMessage();
   }
 });
-// НАСТРОЙКА РАСПОЗНАВАНИЯ РЕЧИ
-if (SpeechRecognition) {
-  recognition = new SpeechRecognition();
-  recognition.lang = "ru-RU";
-  recognition.continuous = false;
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
-  recognition.onstart = () => {
-    isListening = true;
-    voice.textContent = "■";
-    setOrbState("listening");
-  };
-  recognition.onresult = event => {
-    const transcript =
-      event.results[0][0].transcript.trim();
-    if (transcript && voiceMode) {
-      recognition.stop();
-      input.value = transcript;
-      sendMessage();
-    }
-  };
-  recognition.onerror = event => {
-    console.error("Микрофон:", event.error);
-    if (
-      event.error !== "no-speech" &&
-      event.error !== "aborted"
-    ) {
-      addMessage(
-        "Ошибка микрофона: " + event.error,
-        "katya"
-      );
-    }
-  };
-  recognition.onend = () => {
-    isListening = false;
-    if (voiceMode && !isSending &&
-        !speechSynthesis.speaking) {
-      setOrbState("");
-      setTimeout(startListening, 600);
-    }
-  };
-  // Запуск и остановка голосового общения
-  voice.addEventListener("click", () => {
-    if (voiceMode) {
-      stopVoiceMode();
-      return;
-    }
-    if (!voiceEnabled) {
-      addMessage("Сначала включи голосовые ответы.", "katya");
-      return;
-    }
-    voiceMode = true;
-    // Разрешаем браузеру подготовить голос
-    if ("speechSynthesis" in window) {
-      speechSynthesis.cancel();
-      const unlock = new SpeechSynthesisUtterance(" ");
-      unlock.lang = "ru-RU";
-      unlock.volume = 0;
-      speechSynthesis.speak(unlock);
-    }
-    voice.textContent = "■";
-    addMessage("Я слушаю тебя ❤️", "katya");
-    startListening();
-  });
-} else {
-  voice.addEventListener("click", () => {
-    addMessage(
-      "Браузер не поддерживает распознавание речи. Попробуй Chrome.",
-      "katya"
-    );
-  });
-}
-// Переключатель голоса
-settingsButton?.addEventListener("click", () => {
-  voiceEnabled = !voiceEnabled;
-  if (!voiceEnabled) {
-    if (voiceMode) stopVoiceMode();
-    else stopSpeaking();
-    addMessage("Голос выключен.", "katya");
+
+voice.addEventListener("click", () => {
+  if (voiceMode) {
+    stopVoiceMode();
+  } else if (voiceEnabled) {
+    startVoiceMode();
   } else {
-    addMessage("Голос включён.", "katya");
+    addMessage("Сначала включи голос в настройках.", "katya");
   }
 });
-// Меню
+
+settingsButton?.addEventListener("click", () => {
+  voiceEnabled = !voiceEnabled;
+
+  if (!voiceEnabled && voiceMode) {
+    stopVoiceMode();
+  }
+
+  addMessage(
+    voiceEnabled ? "Голос включён." : "Голос выключен.",
+    "katya"
+  );
+});
+
 menuButton?.addEventListener("click", () => {
   chat.classList.toggle("chat-hidden");
 });
+
 addButton?.addEventListener("click", () => {
   input.focus();
 });
-// Выход из голосового режима
+
 voiceExit?.addEventListener("click", () => {
   if (voiceMode) {
     stopVoiceMode();
   } else {
-    stopSpeaking();
+    stopPlayback();
   }
 });
-// При закрытии или сворачивании страницы
+
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    if (voiceMode) {
-      voiceMode = false;
-      if (recognition && isListening) {
-        recognition.stop();
-      }
-      voice.textContent = "🎤";
-    }
-    stopSpeaking();
+  if (document.hidden && voiceMode) {
+    stopVoiceMode();
   }
+});
+
+window.addEventListener("beforeunload", () => {
+  stopVoiceMode(false);
 });
