@@ -8,14 +8,15 @@ const settingsButton = document.getElementById("settingsButton");
 const addButton = document.getElementById("addButton");
 const voiceExit = document.getElementById("voiceExit");
 let isSending = false;
-let recognition = null;
 let isListening = false;
 let voiceEnabled = true;
-let russianVoice = null;
-let conversationHistory = [];
 let voiceMode = false;
-let recognitionActive = false;
-let restartRecognition = false;
+let russianVoice = null;
+let recognition = null;
+let conversationHistory = [];
+const SpeechRecognition =
+  window.SpeechRecognition ||
+  window.webkitSpeechRecognition;
 function addMessage(text, type) {
   const div = document.createElement("div");
   div.className = `message ${type}`;
@@ -30,7 +31,7 @@ function setOrbState(state) {
   if (state) orb.classList.add(state);
 }
 function loadRussianVoice() {
-  if (!("speechSynthesis" in window)) return;
+  if (!window.speechSynthesis) return;
   const voices = speechSynthesis.getVoices();
   russianVoice =
     voices.find(v => v.lang.toLowerCase() === "ru-ru") ||
@@ -41,35 +42,41 @@ if ("speechSynthesis" in window) {
   loadRussianVoice();
   speechSynthesis.onvoiceschanged = loadRussianVoice;
 }
+// Остановка голоса
 function stopSpeaking() {
   if ("speechSynthesis" in window) {
     speechSynthesis.cancel();
   }
   setOrbState("");
 }
+// Включение микрофона
 function startListening() {
   if (!voiceMode || !recognition || isSending) return;
-  if (isListening || recognitionActive) return;
+  if (isListening) return;
+  if (speechSynthesis.speaking) return;
   try {
     recognition.start();
   } catch (error) {
-    console.log("Ожидание запуска микрофона");
+    console.log("Микрофон пока занят");
   }
 }
+// Выключение голосового режима
 function stopVoiceMode() {
   voiceMode = false;
-  restartRecognition = false;
   if (recognition && isListening) {
     recognition.stop();
   }
   stopSpeaking();
   voice.textContent = "🎤";
   setOrbState("");
-  addMessage("Голосовой разговор завершён.", "katya");
+  addMessage("Голосовой режим выключен.", "katya");
 }
+// ГОЛОСОВОЙ ОТВЕТ КАТИ
 function speak(text) {
   if (!voiceEnabled || !("speechSynthesis" in window)) {
-    if (voiceMode) startListening();
+    if (voiceMode) {
+      setTimeout(startListening, 500);
+    }
     return;
   }
   speechSynthesis.cancel();
@@ -87,20 +94,23 @@ function speak(text) {
   };
   utterance.onend = () => {
     setOrbState("");
+    // После ответа Катя снова слушает
     if (voiceMode) {
-      setTimeout(startListening, 400);
+      setTimeout(startListening, 600);
     }
   };
-  utterance.onerror = () => {
+  utterance.onerror = event => {
+    console.error("Ошибка голоса:", event.error);
     setOrbState("");
     if (voiceMode) {
-      setTimeout(startListening, 500);
+      setTimeout(startListening, 1000);
     }
   };
   speechSynthesis.resume();
   speechSynthesis.speak(utterance);
 }
-async function sendMessage(messageFromVoice = false) {
+// ОТПРАВКА СООБЩЕНИЯ GEMINI
+async function sendMessage() {
   const message = input.value.trim();
   if (!message || isSending) return;
   isSending = true;
@@ -115,39 +125,33 @@ async function sendMessage(messageFromVoice = false) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        message: message,
+        message,
         history: conversationHistory
       })
     });
     const data = await response.json();
-    loading.remove();
     if (!response.ok) {
       throw new Error(data.error || "Ошибка сервера");
     }
     if (!data.answer) {
       throw new Error("Катя не получила ответ");
     }
-    conversationHistory.push({
-      role: "user",
-      text: message
-    });
-    conversationHistory.push({
-      role: "model",
-      text: data.answer
-    });
-    if (conversationHistory.length > 30) {
-      conversationHistory = conversationHistory.slice(-30);
-    }
+    conversationHistory.push(
+      { role: "user", text: message },
+      { role: "model", text: data.answer }
+    );
+    conversationHistory =
+      conversationHistory.slice(-30);
+    loading.remove();
     addMessage(data.answer, "katya");
+    // Катя обязательно озвучивает ответ
     if (voiceEnabled) {
       speak(data.answer);
-    } else if (voiceMode) {
-      startListening();
     }
   } catch (error) {
     loading.remove();
     addMessage(
-      "Не удалось получить ответ: " + error.message,
+      "Ошибка: " + error.message,
       "katya"
     );
     if (voiceMode) {
@@ -156,45 +160,25 @@ async function sendMessage(messageFromVoice = false) {
   } finally {
     isSending = false;
     send.disabled = false;
-    if (!voiceMode) {
-      input.focus();
-    }
   }
 }
-send.addEventListener("click", () => sendMessage());
+// Кнопка отправки текста
+send.addEventListener("click", sendMessage);
 input.addEventListener("keydown", event => {
   if (event.key === "Enter") {
     event.preventDefault();
     sendMessage();
   }
 });
-// Голосовой режим
-const SpeechRecognition =
-  window.SpeechRecognition ||
-  window.webkitSpeechRecognition;
+// НАСТРОЙКА РАСПОЗНАВАНИЯ РЕЧИ
 if (SpeechRecognition) {
   recognition = new SpeechRecognition();
   recognition.lang = "ru-RU";
   recognition.continuous = false;
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
-  voice.addEventListener("click", () => {
-    if (voiceMode) {
-      stopVoiceMode();
-      return;
-    }
-    if (!voiceEnabled) {
-      addMessage("Сначала включи голосовые ответы.", "katya");
-      return;
-    }
-    voiceMode = true;
-    voice.textContent = "■";
-    addMessage("Я слушаю тебя ❤️", "katya");
-    startListening();
-  });
   recognition.onstart = () => {
     isListening = true;
-    recognitionActive = true;
     voice.textContent = "■";
     setOrbState("listening");
   };
@@ -204,10 +188,11 @@ if (SpeechRecognition) {
     if (transcript && voiceMode) {
       recognition.stop();
       input.value = transcript;
-      sendMessage(true);
+      sendMessage();
     }
   };
   recognition.onerror = event => {
+    console.error("Микрофон:", event.error);
     if (
       event.error !== "no-speech" &&
       event.error !== "aborted"
@@ -220,53 +205,79 @@ if (SpeechRecognition) {
   };
   recognition.onend = () => {
     isListening = false;
-    recognitionActive = false;
-    if (voiceMode && !isSending && !speechSynthesis.speaking) {
+    if (voiceMode && !isSending &&
+        !speechSynthesis.speaking) {
       setOrbState("");
-      setTimeout(startListening, 500);
+      setTimeout(startListening, 600);
     }
   };
+  // Запуск и остановка голосового общения
+  voice.addEventListener("click", () => {
+    if (voiceMode) {
+      stopVoiceMode();
+      return;
+    }
+    if (!voiceEnabled) {
+      addMessage("Сначала включи голосовые ответы.", "katya");
+      return;
+    }
+    voiceMode = true;
+    // Разрешаем браузеру подготовить голос
+    if ("speechSynthesis" in window) {
+      speechSynthesis.cancel();
+      const unlock = new SpeechSynthesisUtterance(" ");
+      unlock.lang = "ru-RU";
+      unlock.volume = 0;
+      speechSynthesis.speak(unlock);
+    }
+    voice.textContent = "■";
+    addMessage("Я слушаю тебя ❤️", "katya");
+    startListening();
+  });
 } else {
   voice.addEventListener("click", () => {
     addMessage(
-      "Голосовой ввод не поддерживается этим браузером.",
+      "Браузер не поддерживает распознавание речи. Попробуй Chrome.",
       "katya"
     );
   });
 }
-// Настройки
+// Переключатель голоса
 settingsButton?.addEventListener("click", () => {
   voiceEnabled = !voiceEnabled;
   if (!voiceEnabled) {
-    stopSpeaking();
-    if (voiceMode) {
-      stopVoiceMode();
-    }
-    addMessage("Голосовые ответы выключены.", "katya");
+    if (voiceMode) stopVoiceMode();
+    else stopSpeaking();
+    addMessage("Голос выключен.", "katya");
   } else {
-    addMessage("Голосовые ответы включены.", "katya");
+    addMessage("Голос включён.", "katya");
   }
 });
+// Меню
 menuButton?.addEventListener("click", () => {
   chat.classList.toggle("chat-hidden");
 });
 addButton?.addEventListener("click", () => {
   input.focus();
 });
+// Выход из голосового режима
 voiceExit?.addEventListener("click", () => {
   if (voiceMode) {
     stopVoiceMode();
   } else {
     stopSpeaking();
   }
-  input.focus();
 });
+// При закрытии или сворачивании страницы
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     if (voiceMode) {
-      stopVoiceMode();
-    } else {
-      stopSpeaking();
+      voiceMode = false;
+      if (recognition && isListening) {
+        recognition.stop();
+      }
+      voice.textContent = "🎤";
     }
+    stopSpeaking();
   }
 });
