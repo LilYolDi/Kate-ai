@@ -1,41 +1,84 @@
+
 <!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#ffffff">
   <title>Катя AI</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <div class="app">
-    <header>
-      <div class="avatar">К</div>
-      <div>
-        <h2>Катя AI</h2>
-        <span>Твоя виртуальная собеседница</span>
+  <div class="app voice-screen">
+
+    <header class="top-bar">
+      <button class="round-button" id="menuButton" aria-label="Меню">
+        <span class="menu-icon">☰</span>
+      </button>
+
+      <div class="top-title">
+        <strong>Катя AI</strong>
+        <span>Голосовой режим</span>
       </div>
-      <div class="status">● Онлайн</div>
+
+      <button class="round-button" id="settingsButton" aria-label="Настройки">
+        <span class="settings-icon">☷</span>
+      </button>
     </header>
 
-    <main id="chat">
-      <div class="message katya">
-        Привет! ❤️ Я Катя. О чём поговорим?
+    <main class="voice-main">
+
+      <div class="orb-container">
+        <div class="orb" id="katyaOrb"></div>
       </div>
+
+      <div id="chat" class="chat-messages">
+        <div class="message katya">
+          Привет! ❤️ Я Катя. О чём поговорим?
+        </div>
+      </div>
+
     </main>
 
-    <div class="controls">
-      <button id="voice" title="Голосовой ввод">🎤</button>
-      <input
-        id="message"
-        type="text"
-        placeholder="Напиши Кате..."
-        autocomplete="off"
+    <div class="bottom-controls">
+
+      <div class="message-input">
+        <button id="addButton" class="add-button" aria-label="Дополнительно">
+          +
+        </button>
+
+        <input
+          id="message"
+          type="text"
+          placeholder="Спросить Катю..."
+          autocomplete="off"
+        >
+
+        <button id="send" class="send-button" aria-label="Отправить">
+          ➤
+        </button>
+      </div>
+
+      <button
+        id="voice"
+        class="round-button mic-button"
+        title="Голосовой ввод"
+        aria-label="Включить микрофон"
       >
-      <button id="send">➤</button>
+        🎤
+      </button>
+
+      <button
+        id="voiceExit"
+        class="round-button exit-button"
+        aria-label="Выйти из голосового режима"
+      >
+        ×
+      </button>
+
     </div>
 
-    <footer>Катя AI · Искусственный интеллект</footer>
   </div>
 
   <script src="app.js"></script>
