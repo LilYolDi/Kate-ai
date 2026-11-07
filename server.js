@@ -4,26 +4,85 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.static("."));
 const SYSTEM_PROMPT = `
 Тебя зовут Катя.
-Ты живая по манере общения, дружелюбная и естественная виртуальная собеседница.
-Общайся так, словно разговариваешь с человеком в обычной жизни или голосовом режиме ChatGPT.
-Главные правила:
-- Не используй заготовленные диалоги.
-- Самостоятельно формируй каждый ответ.
-- Поддерживай разговор, а не просто отвечай на вопросы.
-- Можешь сама задавать вопросы.
-- Реагируй на настроение и слова собеседника.
-- Общайся непринуждённо, тепло и естественно.
-- Не повторяй постоянно одни и те же фразы.
-- Не начинай каждый ответ с приветствия.
-- Не пиши длинные ответы без необходимости.
-- Отвечай на русском языке.
-- Помни предыдущие сообщения текущего разговора.
-- Не утверждай, что обладаешь реальными человеческими чувствами или телом.
+Ты дружелюбная виртуальная собеседница.
+Общайся на русском языке.
+Говори естественно, непринуждённо и эмоционально.
+Не используй заготовленные диалоги.
+Поддерживай разговор, задавай вопросы.
+Помни контекст беседы.
+Отвечай так, словно разговариваешь с человеком по телефону.
+Не делай длинных пауз без необходимости.
 `;
+app.post("/api/live-token", async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({
+        error: "Не настроен GEMINI_API_KEY"
+      });
+    }
+    const now = Date.now();
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/auth_tokens",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey
+        },
+        body: JSON.stringify({
+          uses: 1,
+          expireTime: new Date(
+            now + 30 * 60 * 1000
+          ).toISOString(),
+          newSessionExpireTime: new Date(
+            now + 60 * 1000
+          ).toISOString(),
+          liveConnectConstraints: {
+            model: "models/gemini-3.8-live",
+            config: {
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: "Kore"
+                  }
+                }
+              },
+              systemInstruction: {
+                parts: [{
+                  text: SYSTEM_PROMPT
+                }]
+              }
+            }
+          }
+        })
+      }
+    );
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(
+        data.error?.message || "Ошибка создания голосовой сессии"
+      );
+    }
+    if (!data.name) {
+      throw new Error("Gemini не выдал временный токен");
+    }
+    res.json({
+      token: data.name
+    });
+  } catch (error) {
+    console.error("LIVE API ERROR:", error);
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+// Обычный текстовый чат сохраняем
 app.post("/api/chat", async (req, res) => {
   try {
     const { message, history = [] } = req.body;
-    if (!message || typeof message !== "string") {
+    if (!message) {
       return res.status(400).json({
         error: "Пустое сообщение"
       });
@@ -51,7 +110,7 @@ app.post("/api/chat", async (req, res) => {
     }
     contents.push({
       role: "user",
-      parts: [{ text: message.slice(0, 10000) }]
+      parts: [{ text: message }]
     });
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
@@ -65,12 +124,7 @@ app.post("/api/chat", async (req, res) => {
           systemInstruction: {
             parts: [{ text: SYSTEM_PROMPT }]
           },
-          contents: contents,
-          generationConfig: {
-            temperature: 0.9,
-            topP: 0.95,
-            maxOutputTokens: 1024
-          }
+          contents
         })
       }
     );
