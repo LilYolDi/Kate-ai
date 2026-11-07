@@ -32,6 +32,8 @@ let micSource = null;
 let muteGain = null;
 let nextPlayTime = 0;
 let playbackSources = [];
+let setupReady = false;
+let microphoneStarted = false;
 
 let conversationHistory = [];
 
@@ -92,9 +94,7 @@ function convertToPCM16(float32) {
 }
 
 function resampleAudio(inputData, inputRate, outputRate) {
-  if (inputRate === outputRate) {
-    return inputData;
-  }
+  if (inputRate === outputRate) return inputData;
 
   const ratio = inputRate / outputRate;
   const newLength = Math.floor(inputData.length / ratio);
@@ -174,10 +174,7 @@ function playAudio(base64) {
         item => item !== source
       );
 
-      if (
-        playbackSources.length === 0 &&
-        voiceMode
-      ) {
+      if (playbackSources.length === 0 && voiceMode) {
         setOrbState("listening");
       }
     };
@@ -190,9 +187,11 @@ function playAudio(base64) {
 
 function sendMicrophoneAudio(float32) {
   if (
+    !setupReady ||
     !socket ||
     socket.readyState !== WebSocket.OPEN ||
-    !voiceMode
+    !voiceMode ||
+    !audioContext
   ) {
     return;
   }
@@ -208,9 +207,7 @@ function sendMicrophoneAudio(float32) {
   socket.send(JSON.stringify({
     realtimeInput: {
       audio: {
-        data: base64FromBytes(
-          new Uint8Array(pcm.buffer)
-        ),
+        data: base64FromBytes(new Uint8Array(pcm.buffer)),
         mimeType: "audio/pcm;rate=16000"
       }
     }
@@ -218,47 +215,62 @@ function sendMicrophoneAudio(float32) {
 }
 
 async function startMicrophone() {
-  microphone = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      channelCount: 1,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true
-    }
-  });
+  if (microphoneStarted || !voiceMode) return;
 
-  audioContext = new (
-    window.AudioContext ||
-    window.webkitAudioContext
-  )();
+  microphoneStarted = true;
 
-  await audioContext.resume();
+  try {
+    microphone = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
 
-  micSource = audioContext.createMediaStreamSource(
-    microphone
-  );
-
-  processor = audioContext.createScriptProcessor(
-    4096,
-    1,
-    1
-  );
-
-  muteGain = audioContext.createGain();
-  muteGain.gain.value = 0;
-
-  processor.onaudioprocess = event => {
     if (!voiceMode) return;
 
-    const inputData =
-      event.inputBuffer.getChannelData(0);
+    audioContext = new (
+      window.AudioContext ||
+      window.webkitAudioContext
+    )();
 
-    sendMicrophoneAudio(inputData);
-  };
+    await audioContext.resume();
 
-  micSource.connect(processor);
-  processor.connect(muteGain);
-  muteGain.connect(audioContext.destination);
+    micSource = audioContext.createMediaStreamSource(microphone);
+
+    processor = audioContext.createScriptProcessor(
+      4096,
+      1,
+      1
+    );
+
+    muteGain = audioContext.createGain();
+    muteGain.gain.value = 0;
+
+    processor.onaudioprocess = event => {
+      if (!voiceMode || !setupReady) return;
+
+      const inputData = event.inputBuffer.getChannelData(0);
+      sendMicrophoneAudio(inputData);
+    };
+
+    micSource.connect(processor);
+    processor.connect(muteGain);
+    muteGain.connect(audioContext.destination);
+
+    addMessage("Катя подключена. Можешь говорить ❤️", "katya");
+    setOrbState("listening");
+
+  } catch (error) {
+    microphoneStarted = false;
+    addMessage(
+      "Не удалось включить микрофон: " + error.message,
+      "katya"
+    );
+    stopVoiceMode(false);
+  }
 }
 
 async function startVoiceMode() {
@@ -273,6 +285,9 @@ async function startVoiceMode() {
   }
 
   voiceMode = true;
+  setupReady = false;
+  microphoneStarted = false;
+
   setVoiceButton(true);
   setOrbState("listening");
 
@@ -299,7 +314,7 @@ async function startVoiceMode() {
       encodeURIComponent(tokenData.token)
     );
 
-    socket.onopen = async () => {
+    socket.onopen = () => {
       if (!voiceMode) return;
 
       socket.send(JSON.stringify({
@@ -315,39 +330,24 @@ async function startVoiceMode() {
               }
             }
           },
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
           systemInstruction: {
-            parts: [
-              { text: SYSTEM_PROMPT }
-            ]
+            parts: [{ text: SYSTEM_PROMPT }]
           }
         }
       }));
 
-      try {
-        await startMicrophone();
-
-        if (voiceMode) {
-          addMessage(
-            "Я тебя слышу. Давай поговорим ❤️",
-            "katya"
-          );
-          setOrbState("listening");
-        }
-      } catch (error) {
-        addMessage(
-          "Не удалось включить микрофон: " + error.message,
-          "katya"
-        );
-        stopVoiceMode(false);
-      }
+      addMessage("Настраиваю голосовой канал...", "katya");
     };
 
-    socket.onmessage = event => {
+    socket.onmessage = async event => {
       let data;
 
       try {
         data = JSON.parse(event.data);
       } catch {
+        console.error("Не удалось прочитать ответ Gemini:", event.data);
         return;
       }
 
@@ -357,6 +357,13 @@ async function startVoiceMode() {
           (data.error.message || "Неизвестная ошибка"),
           "katya"
         );
+        return;
+      }
+
+      // ВАЖНО: микрофон запускается только после setupComplete.
+      if (data.setupComplete && !setupReady) {
+        setupReady = true;
+        await startMicrophone();
         return;
       }
 
@@ -378,30 +385,22 @@ async function startVoiceMode() {
       }
 
       if (content.outputTranscription?.text) {
-        addMessage(
-          content.outputTranscription.text,
-          "katya"
-        );
+        addMessage(content.outputTranscription.text, "katya");
       }
 
       if (content.inputTranscription?.text) {
-        addMessage(
-          content.inputTranscription.text,
-          "user"
-        );
+        addMessage(content.inputTranscription.text, "user");
       }
 
-      if (content.turnComplete) {
-        if (playbackSources.length === 0) {
-          setOrbState("listening");
-        }
+      if (content.turnComplete && playbackSources.length === 0) {
+        setOrbState("listening");
       }
     };
 
     socket.onerror = () => {
       if (voiceMode) {
         addMessage(
-          "Ошибка соединения с голосовым сервером.",
+          "Ошибка соединения с голосовым сервером. Проверь подключение Gemini.",
           "katya"
         );
       }
@@ -411,9 +410,11 @@ async function startVoiceMode() {
       if (voiceMode) {
         addMessage(
           "Голосовое соединение закрыто. Код: " +
-          event.code,
+          event.code +
+          (event.reason ? " Причина: " + event.reason : ""),
           "katya"
         );
+
         stopVoiceMode(false);
       }
     };
@@ -430,6 +431,8 @@ async function startVoiceMode() {
 
 function stopVoiceMode(showMessage = true) {
   voiceMode = false;
+  setupReady = false;
+  microphoneStarted = false;
 
   if (socket) {
     try {
@@ -482,6 +485,7 @@ async function sendMessage() {
 
   if (
     voiceMode &&
+    setupReady &&
     socket &&
     socket.readyState === WebSocket.OPEN
   ) {
