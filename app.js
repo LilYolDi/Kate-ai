@@ -3,10 +3,18 @@ const chat = document.getElementById("chat");
 const input = document.getElementById("message");
 const send = document.getElementById("send");
 const voice = document.getElementById("voice");
+const orb = document.getElementById("katyaOrb");
+
+const menuButton = document.getElementById("menuButton");
+const settingsButton = document.getElementById("settingsButton");
+const addButton = document.getElementById("addButton");
+const voiceExit = document.getElementById("voiceExit");
 
 let isSending = false;
 let recognition = null;
 let isListening = false;
+let voiceEnabled = true;
+let speechRate = 1;
 
 function addMessage(text, type) {
   const div = document.createElement("div");
@@ -17,6 +25,16 @@ function addMessage(text, type) {
   chat.scrollTop = chat.scrollHeight;
 
   return div;
+}
+
+function setOrbState(state) {
+  if (!orb) return;
+
+  orb.classList.remove("listening", "speaking");
+
+  if (state) {
+    orb.classList.add(state);
+  }
 }
 
 async function sendMessage() {
@@ -31,9 +49,7 @@ async function sendMessage() {
   input.value = "";
   send.disabled = true;
 
-  if ("speechSynthesis" in window) {
-    speechSynthesis.cancel();
-  }
+  stopSpeaking();
 
   const loading = addMessage("Катя печатает...", "katya");
 
@@ -59,7 +75,10 @@ async function sendMessage() {
     }
 
     addMessage(data.answer, "katya");
-    speak(data.answer);
+
+    if (voiceEnabled) {
+      speak(data.answer);
+    }
 
   } catch (error) {
     loading.remove();
@@ -84,19 +103,23 @@ function speak(text) {
   const speech = new SpeechSynthesisUtterance(text);
 
   speech.lang = "ru-RU";
-  speech.rate = 1;
+  speech.rate = speechRate;
   speech.pitch = 1.08;
   speech.volume = 1;
 
   const voices = speechSynthesis.getVoices();
 
   const russianVoice = voices.find(
-    voice => voice.lang.toLowerCase().startsWith("ru")
+    item => item.lang.toLowerCase().startsWith("ru")
   );
 
   if (russianVoice) {
     speech.voice = russianVoice;
   }
+
+  speech.onstart = () => setOrbState("speaking");
+  speech.onend = () => setOrbState("");
+  speech.onerror = () => setOrbState("");
 
   speechSynthesis.speak(speech);
 }
@@ -105,6 +128,8 @@ function stopSpeaking() {
   if ("speechSynthesis" in window) {
     speechSynthesis.cancel();
   }
+
+  setOrbState("");
 }
 
 send.addEventListener("click", sendMessage);
@@ -140,6 +165,8 @@ if (SpeechRecognition) {
       return;
     }
 
+    stopSpeaking();
+
     try {
       recognition.start();
     } catch (error) {
@@ -150,6 +177,7 @@ if (SpeechRecognition) {
   recognition.onstart = () => {
     isListening = true;
     voice.textContent = "🔴";
+    setOrbState("listening");
   };
 
   recognition.onresult = event => {
@@ -163,8 +191,10 @@ if (SpeechRecognition) {
   };
 
   recognition.onerror = event => {
-    if (event.error !== "no-speech" &&
-        event.error !== "aborted") {
+    if (
+      event.error !== "no-speech" &&
+      event.error !== "aborted"
+    ) {
       addMessage(
         "Ошибка микрофона: " + event.error,
         "katya"
@@ -175,6 +205,7 @@ if (SpeechRecognition) {
   recognition.onend = () => {
     isListening = false;
     voice.textContent = "🎤";
+    setOrbState("");
   };
 
 } else {
@@ -186,8 +217,44 @@ if (SpeechRecognition) {
   });
 }
 
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden && isListening && recognition) {
+// Кнопка меню — показать или скрыть переписку
+menuButton?.addEventListener("click", () => {
+  chat.classList.toggle("chat-hidden");
+});
+
+// Настройки голоса
+settingsButton?.addEventListener("click", () => {
+  voiceEnabled = !voiceEnabled;
+
+  if (!voiceEnabled) {
+    stopSpeaking();
+    addMessage("Озвучивание ответов выключено.", "katya");
+  } else {
+    addMessage("Озвучивание ответов включено.", "katya");
+  }
+});
+
+// Кнопка плюс — перейти к вводу сообщения
+addButton?.addEventListener("click", () => {
+  input.focus();
+});
+
+// Выход — остановить микрофон и голос
+voiceExit?.addEventListener("click", () => {
+  if (recognition && isListening) {
     recognition.stop();
+  }
+
+  stopSpeaking();
+  input.focus();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (isListening && recognition) {
+      recognition.stop();
+    }
+
+    stopSpeaking();
   }
 });
