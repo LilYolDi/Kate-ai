@@ -14,41 +14,84 @@ let isSending = false;
 let recognition = null;
 let isListening = false;
 let voiceEnabled = true;
-let speechRate = 1;
+let russianVoice = null;
 
 function addMessage(text, type) {
   const div = document.createElement("div");
   div.className = `message ${type}`;
   div.textContent = text;
-
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
-
   return div;
 }
 
 function setOrbState(state) {
   if (!orb) return;
-
   orb.classList.remove("listening", "speaking");
+  if (state) orb.classList.add(state);
+}
 
-  if (state) {
-    orb.classList.add(state);
+function loadRussianVoice() {
+  if (!("speechSynthesis" in window)) return;
+
+  const voices = speechSynthesis.getVoices();
+  russianVoice =
+    voices.find(v => v.lang.toLowerCase() === "ru-ru") ||
+    voices.find(v => v.lang.toLowerCase().startsWith("ru")) ||
+    null;
+}
+
+if ("speechSynthesis" in window) {
+  loadRussianVoice();
+  speechSynthesis.addEventListener?.("voiceschanged", loadRussianVoice);
+  speechSynthesis.onvoiceschanged = loadRussianVoice;
+}
+
+function stopSpeaking() {
+  if ("speechSynthesis" in window) {
+    speechSynthesis.cancel();
   }
+  setOrbState("");
+}
+
+function speak(text) {
+  if (!voiceEnabled || !("speechSynthesis" in window)) {
+    return;
+  }
+
+  speechSynthesis.cancel();
+  loadRussianVoice();
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "ru-RU";
+  utterance.rate = 0.95;
+  utterance.pitch = 1.05;
+  utterance.volume = 1;
+
+  if (russianVoice) {
+    utterance.voice = russianVoice;
+  }
+
+  utterance.onstart = () => setOrbState("speaking");
+  utterance.onend = () => setOrbState("");
+  utterance.onerror = event => {
+    setOrbState("");
+    console.error("Ошибка озвучивания:", event.error);
+  };
+
+  // Возобновляем синтез, если браузер поставил его на паузу.
+  speechSynthesis.resume();
+  speechSynthesis.speak(utterance);
 }
 
 async function sendMessage() {
   const message = input.value.trim();
-
   if (!message || isSending) return;
 
   isSending = true;
-
   addMessage(message, "user");
-
   input.value = "";
   send.disabled = true;
-
   stopSpeaking();
 
   const loading = addMessage("Катя печатает...", "katya");
@@ -56,14 +99,11 @@ async function sendMessage() {
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message })
     });
 
     const data = await response.json();
-
     loading.remove();
 
     if (!response.ok) {
@@ -82,12 +122,7 @@ async function sendMessage() {
 
   } catch (error) {
     loading.remove();
-
-    addMessage(
-      "Не удалось получить ответ: " + error.message,
-      "katya"
-    );
-
+    addMessage("Не удалось получить ответ: " + error.message, "katya");
   } finally {
     isSending = false;
     send.disabled = false;
@@ -95,65 +130,20 @@ async function sendMessage() {
   }
 }
 
-function speak(text) {
-  if (!("speechSynthesis" in window)) return;
-
-  speechSynthesis.cancel();
-
-  const speech = new SpeechSynthesisUtterance(text);
-
-  speech.lang = "ru-RU";
-  speech.rate = speechRate;
-  speech.pitch = 1.08;
-  speech.volume = 1;
-
-  const voices = speechSynthesis.getVoices();
-
-  const russianVoice = voices.find(
-    item => item.lang.toLowerCase().startsWith("ru")
-  );
-
-  if (russianVoice) {
-    speech.voice = russianVoice;
-  }
-
-  speech.onstart = () => setOrbState("speaking");
-  speech.onend = () => setOrbState("");
-  speech.onerror = () => setOrbState("");
-
-  speechSynthesis.speak(speech);
-}
-
-function stopSpeaking() {
-  if ("speechSynthesis" in window) {
-    speechSynthesis.cancel();
-  }
-
-  setOrbState("");
-}
-
 send.addEventListener("click", sendMessage);
 
 input.addEventListener("keydown", event => {
-  if (event.key === "Enter" && !event.shiftKey) {
+  if (event.key === "Enter") {
     event.preventDefault();
     sendMessage();
   }
 });
 
-if ("speechSynthesis" in window) {
-  speechSynthesis.onvoiceschanged = () => {
-    speechSynthesis.getVoices();
-  };
-}
-
 const SpeechRecognition =
-  window.SpeechRecognition ||
-  window.webkitSpeechRecognition;
+  window.SpeechRecognition || window.webkitSpeechRecognition;
 
 if (SpeechRecognition) {
   recognition = new SpeechRecognition();
-
   recognition.lang = "ru-RU";
   recognition.continuous = false;
   recognition.interimResults = false;
@@ -170,20 +160,18 @@ if (SpeechRecognition) {
     try {
       recognition.start();
     } catch (error) {
-      addMessage("Не удалось включить микрофон.", "katya");
+      addMessage("Не удалось включить микрофон. Проверь разрешение браузера.", "katya");
     }
   });
 
   recognition.onstart = () => {
     isListening = true;
-    voice.textContent = "🔴";
+    voice.textContent = "●";
     setOrbState("listening");
   };
 
   recognition.onresult = event => {
-    const transcript =
-      event.results[0][0].transcript.trim();
-
+    const transcript = event.results[0][0].transcript.trim();
     if (transcript) {
       input.value = transcript;
       sendMessage();
@@ -191,14 +179,8 @@ if (SpeechRecognition) {
   };
 
   recognition.onerror = event => {
-    if (
-      event.error !== "no-speech" &&
-      event.error !== "aborted"
-    ) {
-      addMessage(
-        "Ошибка микрофона: " + event.error,
-        "katya"
-      );
+    if (event.error !== "no-speech" && event.error !== "aborted") {
+      addMessage("Ошибка микрофона: " + event.error, "katya");
     }
   };
 
@@ -210,51 +192,36 @@ if (SpeechRecognition) {
 
 } else {
   voice.addEventListener("click", () => {
-    addMessage(
-      "Голосовой ввод не поддерживается этим браузером.",
-      "katya"
-    );
+    addMessage("Голосовой ввод не поддерживается этим браузером. Попробуй открыть сайт в Safari или Chrome.", "katya");
   });
 }
 
-// Кнопка меню — показать или скрыть переписку
-menuButton?.addEventListener("click", () => {
-  chat.classList.toggle("chat-hidden");
-});
-
-// Настройки голоса
 settingsButton?.addEventListener("click", () => {
   voiceEnabled = !voiceEnabled;
 
   if (!voiceEnabled) {
     stopSpeaking();
-    addMessage("Озвучивание ответов выключено.", "katya");
+    addMessage("Голосовые ответы выключены.", "katya");
   } else {
-    addMessage("Озвучивание ответов включено.", "katya");
+    addMessage("Голосовые ответы включены.", "katya");
   }
 });
 
-// Кнопка плюс — перейти к вводу сообщения
-addButton?.addEventListener("click", () => {
-  input.focus();
+menuButton?.addEventListener("click", () => {
+  chat.classList.toggle("chat-hidden");
 });
 
-// Выход — остановить микрофон и голос
+addButton?.addEventListener("click", () => input.focus());
+
 voiceExit?.addEventListener("click", () => {
-  if (recognition && isListening) {
-    recognition.stop();
-  }
-
+  if (recognition && isListening) recognition.stop();
   stopSpeaking();
   input.focus();
 });
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    if (isListening && recognition) {
-      recognition.stop();
-    }
-
+    if (recognition && isListening) recognition.stop();
     stopSpeaking();
   }
 });
