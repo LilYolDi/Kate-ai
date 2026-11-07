@@ -10,21 +10,26 @@ app.post("/api/chat", async (req, res) => {
     const message = req.body.message;
 
     if (!message) {
-      return res.status(400).json({ error: "Пустое сообщение" });
+      return res.status(400).json({
+        error: "Пустое сообщение"
+      });
     }
 
-    if (!process.env.GEMINI_API_KEY) {
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
       return res.status(500).json({
-        error: "Не настроен GEMINI_API_KEY на сервере"
+        error: "Не настроен GEMINI_API_KEY"
       });
     }
 
     const response = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+      {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-goog-api-key": process.env.GEMINI_API_KEY
+          "x-goog-api-key": apiKey
         },
         body: JSON.stringify({
           systemInstruction: {
@@ -43,7 +48,9 @@ app.post("/api/chat", async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error?.message || "Ошибка ИИ");
+      throw new Error(
+        data.error?.message || "Ошибка Gemini"
+      );
     }
 
     const answer =
@@ -54,7 +61,11 @@ app.post("/api/chat", async (req, res) => {
     res.json({ answer });
 
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Ошибка AI:", error);
+
+    res.status(500).json({
+      error: error.message
+    });
   }
 });
 
