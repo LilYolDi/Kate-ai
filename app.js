@@ -26,6 +26,13 @@ let inputTranscriptionTimer = null;
 let sessionId = 0;
 let lastLaunchedApp = "";
 let lastLaunchTime = 0;
+// Голосовая активация «Катя»
+let wakeRecognition = null;
+let wakeEnabled = true;
+let wakeListening = false;
+let wakeStarting = false;
+let wakeRestartTimer = null;
+let wakeGreetingPending = false;
 // Приложения Android
 const katyaApps = {
   youtube: {
@@ -195,15 +202,12 @@ function mergeTranscription(current, incoming) {
   incoming = String(incoming || "").trim();
   if (!incoming) return current;
   if (!current) return incoming;
-  // Новая версия содержит всю предыдущую фразу
   if (incoming.startsWith(current)) {
     return incoming;
   }
-  // Предыдущая версия уже содержит новую
   if (current.startsWith(incoming)) {
     return current;
   }
-  // Ищем совпадающую часть на границе двух фрагментов
   const maxOverlap = Math.min(
     current.length,
     incoming.length
@@ -228,7 +232,6 @@ function collectInputTranscription(text, isFinal = false) {
       inputTextBuffer,
       incoming
     );
-    // Финальный текст заменяет промежуточный
     latestInterimTranscription = "";
   } else {
     latestInterimTranscription = incoming;
@@ -252,7 +255,6 @@ function finishInputTranscription() {
     inputTranscriptionTimer = null;
   }
   let recognizedText = inputTextBuffer.trim();
-  // Если финального текста нет, используем промежуточный
   if (!recognizedText) {
     recognizedText = latestInterimTranscription.trim();
   }
@@ -318,6 +320,32 @@ function stopAllAudio() {
   assistantSpeaking = false;
   assistantTurnActive = false;
 }
+// Приветствие после активации
+function speakWakeGreeting() {
+  if (!wakeGreetingPending) return;
+  wakeGreetingPending = false;
+  if (!("speechSynthesis" in window)) {
+    setStatus("Катя подключена. Можешь говорить.");
+    return;
+  }
+  const greeting = new SpeechSynthesisUtterance("Я слушаю");
+  greeting.lang = "ru-RU";
+  greeting.rate = 1;
+  assistantSpeaking = true;
+  greeting.onend = () => {
+    assistantSpeaking = false;
+  };
+  greeting.onerror = () => {
+    assistantSpeaking = false;
+  };
+  try {
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(greeting);
+  } catch (error) {
+    assistantSpeaking = false;
+    console.warn("Не удалось произнести приветствие:", error);
+  }
+}
 // Воспроизведение голоса Gemini
 function playAudio(base64) {
   if (!audioContext || !voiceActive) return;
@@ -344,7 +372,6 @@ function playAudio(base64) {
     }
     const audioSource = audioContext.createBufferSource();
     audioSource.buffer = buffer;
-    // Вывод через медиапоток для Bluetooth
     audioSource.connect(
       audioOutputNode || audioContext.destination
     );
@@ -383,6 +410,9 @@ function processGeminiMessage(message) {
   if (message.type === "ready") {
     setStatus("Катя подключена. Можешь говорить.");
     setOrb(true);
+    if (wakeGreetingPending) {
+      speakWakeGreeting();
+    }
     return;
   }
   if (message.type === "error") {
@@ -501,7 +531,6 @@ async function startMicrophone() {
       "Bluetooth audio element playback unavailable:",
       error
     );
-    // Резервный стандартный вывод
     audioOutputNode = audioContext.destination;
   }
   source = audioContext.createMediaStreamSource(microphone);
@@ -575,10 +604,125 @@ function stopMicrophone() {
   audioOutputNode = null;
   audioNextTime = 0;
 }
+// Остановка ожидания слова «Катя»
+function stopWakeWordListening() {
+  if (wakeRestartTimer) {
+    clearTimeout(wakeRestartTimer);
+    wakeRestartTimer = null;
+  }
+  if (wakeRecognition && wakeListening) {
+    try {
+      wakeRecognition.stop();
+    } catch (error) {}
+  }
+  wakeListening = false;
+  wakeStarting = false;
+}
+// Обнаружение слова «Катя»
+function handleWakeWord() {
+  if (!wakeEnabled || voiceActive) return;
+  console.log("Обнаружено ключевое слово: Катя");
+  wakeEnabled = false;
+  wakeGreetingPending = true;
+  stopWakeWordListening();
+  setStatus("Просыпаюсь... ❤️");
+  startVoiceMode();
+}
+// Запуск ожидания ключевого слова
+function startWakeWordListening() {
+  if (
+    !wakeEnabled ||
+    voiceActive ||
+    wakeListening ||
+    wakeStarting
+  ) {
+    return;
+  }
+  const SpeechRecognition =
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    setStatus(
+      "Голосовая активация не поддерживается этим браузером. Открой Катю в Chrome."
+    );
+    return;
+  }
+  if (!wakeRecognition) {
+    wakeRecognition = new SpeechRecognition();
+    wakeRecognition.lang = "ru-RU";
+    wakeRecognition.continuous = true;
+    wakeRecognition.interimResults = true;
+    wakeRecognition.maxAlternatives = 3;
+    wakeRecognition.onresult = event => {
+      for (
+        let i = event.resultIndex;
+        i < event.results.length;
+        i++
+      ) {
+        const result = event.results[i];
+        for (let j = 0; j < result.length; j++) {
+          const recognized = normalizeCommandText(
+            result[j].transcript
+          );
+          if (/(^|\s)катя($|\s)/i.test(recognized)) {
+            handleWakeWord();
+            return;
+          }
+        }
+      }
+    };
+    wakeRecognition.onerror = event => {
+      console.warn(
+        "Ошибка ожидания слова Катя:",
+        event.error
+      );
+      if (
+        event.error === "not-allowed" ||
+        event.error === "service-not-allowed"
+      ) {
+        wakeEnabled = false;
+        setStatus(
+          "Разреши микрофон браузеру для голосовой активации."
+        );
+      }
+    };
+    wakeRecognition.onend = () => {
+      wakeListening = false;
+      wakeStarting = false;
+      if (wakeEnabled && !voiceActive) {
+        wakeRestartTimer = setTimeout(() => {
+          wakeRestartTimer = null;
+          startWakeWordListening();
+        }, 1000);
+      }
+    };
+  }
+  try {
+    wakeStarting = true;
+    wakeRecognition.start();
+    wakeListening = true;
+    wakeStarting = false;
+    setStatus("Катя ждёт твоего обращения ❤️");
+  } catch (error) {
+    wakeStarting = false;
+    console.warn(
+      "Не удалось включить ожидание слова:",
+      error
+    );
+    if (error.name === "NotAllowedError") {
+      wakeEnabled = false;
+      setStatus("Разреши использование микрофона.");
+    }
+  }
+}
+// Запуск голосового режима Gemini
 async function startVoiceMode() {
   if (voiceActive) return;
+  wakeEnabled = false;
+  stopWakeWordListening();
   if (!navigator.mediaDevices?.getUserMedia) {
     setStatus("Браузер не разрешает доступ к микрофону.");
+    wakeGreetingPending = false;
     return;
   }
   const currentSession = ++sessionId;
@@ -649,8 +793,28 @@ async function startVoiceMode() {
     }
   }
 }
+// Возврат к ожиданию слова после завершения разговора
+function restartWakeWordListening() {
+  if (!wakeEnabled || voiceActive) return;
+  if (wakeRestartTimer) {
+    clearTimeout(wakeRestartTimer);
+  }
+  wakeRestartTimer = setTimeout(() => {
+    wakeRestartTimer = null;
+    startWakeWordListening();
+  }, 1000);
+}
+// Остановка голосового режима
 function stopVoiceMode() {
-  if (!voiceActive && !socket && !microphone) return;
+  if (
+    !voiceActive &&
+    !socket &&
+    !microphone
+  ) {
+    wakeEnabled = true;
+    restartWakeWordListening();
+    return;
+  }
   voiceActive = false;
   sessionId++;
   stopMicrophone();
@@ -672,6 +836,12 @@ function stopVoiceMode() {
   inputTextBuffer = "";
   setVoiceButton(false);
   setOrb(false);
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+  }
+  wakeGreetingPending = false;
+  wakeEnabled = true;
+  restartWakeWordListening();
 }
 async function sendTextMessage() {
   const message = messageInput.value.trim();
@@ -699,7 +869,8 @@ async function sendTextMessage() {
     if (!response.ok) {
       throw new Error(data.error || "Ошибка сервера");
     }
-    const reply = data.reply || "Не получилось получить ответ.";
+    const reply =
+      data.reply || "Не получилось получить ответ.";
     addMessage(reply, "katya");
     history.push(
       { role: "user", text: message },
@@ -713,9 +884,11 @@ async function sendTextMessage() {
     addMessage("Ошибка: " + error.message, "katya");
   }
 }
+// Кнопка отправки текста
 if (sendButton) {
   sendButton.addEventListener("click", sendTextMessage);
 }
+// Отправка текста клавишей Enter
 if (messageInput) {
   messageInput.addEventListener("keydown", event => {
     if (event.key === "Enter") {
@@ -723,16 +896,31 @@ if (messageInput) {
     }
   });
 }
+// Ручное управление голосовым режимом
 if (voiceButton) {
   voiceButton.addEventListener("click", () => {
     if (voiceActive) {
       stopVoiceMode();
     } else {
+      wakeEnabled = false;
+      stopWakeWordListening();
       startVoiceMode();
     }
   });
 }
+// Кнопка выхода из голосового режима
 if (voiceExit) {
   voiceExit.addEventListener("click", stopVoiceMode);
 }
-window.addEventListener("beforeunload", stopVoiceMode);
+// Автоматическое ожидание слова «Катя» после загрузки
+window.addEventListener("load", () => {
+  setTimeout(() => {
+    startWakeWordListening();
+  }, 1000);
+});
+// Очистка при закрытии страницы
+window.addEventListener("beforeunload", () => {
+  wakeEnabled = false;
+  stopWakeWordListening();
+  stopVoiceMode();
+});
