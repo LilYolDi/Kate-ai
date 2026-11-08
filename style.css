@@ -437,3 +437,266 @@ body.pink-theme .message-input {
 .mic-button:active {
   transform: scale(.92);
 }
+
+
+
+
+
+/* =================================
+   KATYA AI — PINK GLASS SIDE MENU
+================================= */
+
+.menu-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 19;
+  background: rgba(65, 35, 58, .28);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .35s ease, visibility .35s;
+}
+
+.menu-overlay.overlay-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.side-menu {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 78%;
+  max-width: 340px;
+  min-width: 260px;
+  padding: 22px 17px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+
+  background:
+    linear-gradient(
+      145deg,
+      rgba(255,255,255,.97),
+      rgba(255,229,243,.94)
+    );
+
+  border-right: 1px solid rgba(255,255,255,.9);
+  border-radius: 0 27px 27px 0;
+
+  box-shadow: 15px 0 45px rgba(193,105,157,.2);
+
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+
+  transform: translateX(-105%);
+  visibility: hidden;
+  transition:
+    transform .38s cubic-bezier(.22,.8,.25,1),
+    visibility .38s;
+}
+
+.side-menu.menu-open {
+  transform: translateX(0);
+  visibility: visible;
+}
+
+/* Шапка меню */
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 85px;
+}
+
+.drawer-avatar {
+  width: 53px;
+  height: 53px;
+  flex-shrink: 0;
+  padding: 4px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.9);
+  box-shadow:
+    0 0 0 4px rgba(239,157,203,.13),
+    0 5px 20px rgba(218,112,175,.2);
+}
+
+.drawer-orb {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 25%, #fff, transparent 35%),
+    linear-gradient(145deg, #ffb9dc, #e18bc9, #c5a3f5);
+  box-shadow: inset 0 2px 8px rgba(255,255,255,.8);
+  animation: float 4s ease-in-out infinite;
+}
+
+.drawer-title {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.drawer-title strong {
+  font-size: 19px;
+  color: #bd5795;
+}
+
+.drawer-title span {
+  font-size: 11px;
+  color: #a9879e;
+}
+
+.drawer-close {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: 1px solid rgba(238,177,211,.6);
+  border-radius: 50%;
+  background: linear-gradient(145deg, #fff, #f9dcec);
+  color: #ce5795;
+  font-size: 24px;
+  font-weight: 300;
+  box-shadow: 0 4px 14px rgba(218,91,155,.13);
+}
+
+/* Разделители */
+
+.drawer-divider {
+  height: 1px;
+  margin: 17px 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(218,145,190,.4),
+    transparent
+  );
+}
+
+.drawer-label {
+  margin: 3px 10px 12px;
+  color: #bd91ad;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+}
+
+/* Кнопки меню */
+
+.drawer-item {
+  width: 100%;
+  min-height: 53px;
+  margin-bottom: 8px;
+  padding: 0 13px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+
+  border: 1px solid transparent;
+  border-radius: 17px;
+
+  background: rgba(255,255,255,.52);
+  color: #76546c;
+
+  text-align: left;
+  font-size: 14px;
+  font-family: Arial, sans-serif;
+
+  transition:
+    background .2s,
+    border .2s,
+    box-shadow .2s,
+    transform .2s;
+}
+
+.drawer-item:active {
+  transform: scale(.97);
+}
+
+.drawer-item.active {
+  background: linear-gradient(
+    120deg,
+    rgba(255,255,255,.98),
+    rgba(255,222,239,.9)
+  );
+  border-color: rgba(235,169,207,.5);
+  color: #bd5795;
+  box-shadow: 0 5px 18px rgba(210,120,174,.12);
+}
+
+.drawer-icon {
+  width: 29px;
+  height: 29px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 10px;
+  background: rgba(239,171,210,.18);
+  color: #c56ba4;
+  font-size: 20px;
+}
+
+/* Нижняя часть */
+
+.drawer-footer {
+  margin-top: auto;
+  padding-top: 25px;
+  text-align: center;
+}
+
+.drawer-footer-line {
+  height: 1px;
+  margin-bottom: 18px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(218,145,190,.4),
+    transparent
+  );
+}
+
+.drawer-footer-name {
+  color: #ce83b0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+}
+
+.drawer-footer-version {
+  margin-top: 7px;
+  color: #b89aaf;
+  font-size: 10px;
+}
+
+/* Розовая тема */
+
+body.pink-theme .side-menu {
+  background: linear-gradient(
+    145deg,
+    rgba(255,241,249,.98),
+    rgba(255,220,239,.97)
+  );
+}
+
+/* Маленькие экраны */
+
+@media (max-width: 390px) {
+  .side-menu {
+    width: 82%;
+    min-width: 0;
+    padding: 18px 14px;
+  }
+
+  .drawer-item {
+    min-height: 50px;
+  }
+}
