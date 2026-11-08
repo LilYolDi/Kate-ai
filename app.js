@@ -21,7 +21,67 @@ let assistantTurnActive = false;
 let audioSources = new Set();
 let history = [];
 let outputTextBuffer = "";
+let inputTextBuffer = "";
 let sessionId = 0;
+
+let lastLaunchedApp = "";
+let lastLaunchTime = 0;
+
+// Приложения Android
+const katyaApps = {
+  youtube: {
+    name: "YouTube",
+    aliases: ["youtube", "ютуб", "ютюб"],
+    url: "intent://www.youtube.com/#Intent;scheme=https;package=com.google.android.youtube;end"
+  },
+
+  telegram: {
+    name: "Telegram",
+    aliases: ["telegram", "телеграм", "телеграмм"],
+    url: "intent://resolve/#Intent;scheme=tg;package=org.telegram.messenger;end"
+  },
+
+  tiktok: {
+    name: "TikTok",
+    aliases: ["tiktok", "тик ток", "тикток"],
+    url: "intent://www.tiktok.com/#Intent;scheme=https;package=com.zhiliaoapp.musically;end"
+  },
+
+  chrome: {
+    name: "Chrome",
+    aliases: ["chrome", "гугл хром", "хром"],
+    url: "intent://www.google.com/#Intent;scheme=https;package=com.android.chrome;end"
+  },
+
+  instagram: {
+    name: "Instagram",
+    aliases: ["instagram", "инстаграм", "инстаграмм"],
+    url: "intent://www.instagram.com/#Intent;scheme=https;package=com.instagram.android;end"
+  },
+
+  facebook: {
+    name: "Facebook",
+    aliases: ["facebook", "фейсбук"],
+    url: "intent://www.facebook.com/#Intent;scheme=https;package=com.facebook.katana;end"
+  },
+
+  whatsapp: {
+    name: "WhatsApp",
+    aliases: ["whatsapp", "ватсап", "ватсапп", "вотсап"],
+    url: "intent://send/#Intent;scheme=whatsapp;package=com.whatsapp;end"
+  },
+
+  settings: {
+    name: "Настройки планшета",
+    aliases: [
+      "настройки планшета",
+      "настройки телефона",
+      "настройки",
+      "settings"
+    ],
+    url: "intent://com.android.settings/#Intent;scheme=android-app;end"
+  }
+};
 
 function setStatus(text) {
   addMessage(text, "katya");
@@ -45,28 +105,155 @@ function setOrb(active) {
 function setVoiceButton(active) {
   if (!voiceButton) return;
 
-  if (active) {
-    voiceButton.innerHTML = `
-      <svg class="mic-svg" viewBox="0 0 24 24">
-        <rect x="9" y="2" width="6" height="12" rx="3"/>
-        <path d="M5 11a7 7 0 0 0 14 0"/>
-        <path d="M12 18v4M9 22h6"/>
-      </svg>
-    `;
-  } else {
-    voiceButton.innerHTML = `
-      <svg class="mic-svg" viewBox="0 0 24 24">
-        <rect x="9" y="2" width="6" height="12" rx="3"/>
-        <path d="M5 11a7 7 0 0 0 14 0"/>
-        <path d="M12 18v4M9 22h6"/>
-      </svg>
-    `;
-  }
+  voiceButton.innerHTML = `
+    <svg class="mic-svg" viewBox="0 0 24 24">
+      <rect x="9" y="2" width="6" height="12" rx="3"/>
+      <path d="M5 11a7 7 0 0 0 14 0"/>
+      <path d="M12 18v4M9 22h6"/>
+    </svg>
+  `;
 
   voiceButton.setAttribute(
     "aria-label",
     active ? "Остановить микрофон" : "Включить микрофон"
   );
+}
+
+// Нормализация текста для распознавания команд
+function normalizeCommandText(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[ё]/g, "е")
+    .replace(/[.,!?;:()[\]{}"']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Определяем команду запуска приложения
+function detectAppCommand(text) {
+  const normalized = normalizeCommandText(text);
+
+  if (!normalized) return null;
+
+  const hasLaunchVerb =
+    /(^|\s)(открой|открывай|запусти|запускай|включи|перейди|зайди|покажи)(\s|$)/i
+      .test(normalized);
+
+  if (!hasLaunchVerb) return null;
+
+  const appKeys = Object.keys(katyaApps);
+
+  for (const key of appKeys) {
+    const app = katyaApps[key];
+
+    const aliases = [...app.aliases].sort(
+      (a, b) => b.length - a.length
+    );
+
+    for (const alias of aliases) {
+      if (normalized.includes(alias)) {
+        return key;
+      }
+    }
+  }
+
+  return null;
+}
+
+// Показываем кнопку запуска приложения в чате
+function showAppLaunchButton(appKey) {
+  const app = katyaApps[appKey];
+
+  if (!app || !chat) return;
+
+  // Не показываем одинаковую кнопку несколько раз подряд
+  const now = Date.now();
+
+  if (
+    lastLaunchedApp === appKey &&
+    now - lastLaunchTime < 4000
+  ) {
+    return;
+  }
+
+  lastLaunchedApp = appKey;
+  lastLaunchTime = now;
+
+  const container = document.createElement("div");
+  container.className = "message katya";
+
+  const text = document.createElement("div");
+  text.textContent = `Хорошо ❤️ Открываю ${app.name}. Нажми кнопку ниже:`;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "app-launch-button";
+  button.textContent = `Открыть ${app.name}`;
+
+  button.style.display = "block";
+  button.style.marginTop = "10px";
+  button.style.padding = "11px 18px";
+  button.style.border = "none";
+  button.style.borderRadius = "20px";
+  button.style.background = "linear-gradient(135deg, #ff75b5, #e83e91)";
+  button.style.color = "#ffffff";
+  button.style.fontWeight = "600";
+  button.style.cursor = "pointer";
+
+  button.addEventListener("click", () => {
+    window.location.href = app.url;
+  });
+
+  container.appendChild(text);
+  container.appendChild(button);
+
+  chat.appendChild(container);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+// Обработка текста голосовой транскрипции.
+// Некоторые фрагменты могут приходить частями.
+function collectInputTranscription(text) {
+  if (!text) return;
+
+  const incoming = String(text).trim();
+
+  if (!incoming) return;
+
+  if (!inputTextBuffer) {
+    inputTextBuffer = incoming;
+    return;
+  }
+
+  // Если Gemini прислал накопленный текст целиком
+  if (incoming.startsWith(inputTextBuffer)) {
+    inputTextBuffer = incoming;
+    return;
+  }
+
+  // Если предыдущий текст уже содержится во входящем
+  if (inputTextBuffer.startsWith(incoming)) {
+    return;
+  }
+
+  inputTextBuffer += " " + incoming;
+}
+
+// Проверяем голосовую команду после завершения фразы
+function finishInputTranscription() {
+  const recognizedText = inputTextBuffer.trim();
+
+  inputTextBuffer = "";
+
+  if (!recognizedText) return;
+
+  console.log("Распознано:", recognizedText);
+
+  const appKey = detectAppCommand(recognizedText);
+
+  if (appKey) {
+    showAppLaunchButton(appKey);
+  }
 }
 
 function convertTo16kHz(input, inputRate) {
@@ -242,11 +429,14 @@ function processGeminiMessage(message) {
   if (content.interrupted) {
     stopAllAudio();
     outputTextBuffer = "";
+    inputTextBuffer = "";
     return;
   }
 
+  // Получаем распознанную речь пользователя
   if (content.inputTranscription?.text) {
     console.log("Ты сказал:", content.inputTranscription.text);
+    collectInputTranscription(content.inputTranscription.text);
   }
 
   // Получаем текст ответа только из одного источника
@@ -271,9 +461,11 @@ function processGeminiMessage(message) {
     }
   }
 
-  // Показываем один готовый ответ
+  // Завершение пользовательской фразы и ответа Gemini
   if (content.turnComplete) {
+    finishInputTranscription();
     finishOutputText();
+
     assistantTurnActive = false;
 
     if (audioSources.size === 0) {
@@ -389,6 +581,7 @@ async function startVoiceMode() {
   assistantSpeaking = false;
   assistantTurnActive = false;
   outputTextBuffer = "";
+  inputTextBuffer = "";
 
   setVoiceButton(true);
   setOrb(false);
@@ -492,6 +685,7 @@ function stopVoiceMode() {
   }
 
   outputTextBuffer = "";
+  inputTextBuffer = "";
 
   setVoiceButton(false);
   setOrb(false);
@@ -505,6 +699,14 @@ async function sendTextMessage() {
   messageInput.value = "";
 
   addMessage(message, "user");
+
+  // Проверяем, не является ли текст командой запуска приложения
+  const appKey = detectAppCommand(message);
+
+  if (appKey) {
+    showAppLaunchButton(appKey);
+    return;
+  }
 
   try {
     const response = await fetch("/api/chat", {
