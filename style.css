@@ -319,11 +319,20 @@ input::placeholder {
   width: 48px;
   height: 48px;
   flex-shrink: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.95);
+  background: linear-gradient(145deg, #fff, #f9d5e8);
+  color: #ce5795;
+  box-shadow:
+    0 0 0 5px rgba(244,170,207,.15),
+    0 8px 25px rgba(218,91,155,.25),
+    inset 0 2px 8px #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 27px;
   font-weight: 300;
-  background: rgba(70,45,65,.88);
-  color: #fff;
-  box-shadow: 0 5px 18px rgba(60,30,55,.15);
 }
 
 button {
