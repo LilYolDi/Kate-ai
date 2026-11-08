@@ -400,8 +400,8 @@ body.pink-theme .message-input {
 
 /* Pink Glass Microphone */
 .mic-button {
-  width: 76px;
-  height: 76px;
+  width: 48px;
+  height: 48px;
   padding: 0;
   border-radius: 50%;
   border: 1px solid rgba(255,255,255,.95);
@@ -410,12 +410,6 @@ body.pink-theme .message-input {
     0 0 0 5px rgba(244,170,207,.15),
     0 8px 25px rgba(218,91,155,.25),
     inset 0 2px 8px #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.mic-button {
   display: flex;
   align-items: center;
   justify-content: center;
