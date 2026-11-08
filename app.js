@@ -15,42 +15,45 @@ let muteGain = null;
 let audioOutputElement = null;
 let audioOutputDestination = null;
 let audioOutputNode = null;
+
 let voiceActive = false;
+let voiceStarting = false;
 let audioNextTime = 0;
 let assistantSpeaking = false;
 let assistantTurnActive = false;
 let audioSources = new Set();
 let history = [];
+
 let outputTextBuffer = "";
 let inputTextBuffer = "";
 let latestInterimTranscription = "";
 let inputTranscriptionTimer = null;
+
 let sessionId = 0;
 let lastLaunchedApp = "";
 let lastLaunchTime = 0;
 
-// Буфер воспроизведения голоса Кати
-const AUDIO_BUFFER_SECONDS = 0.20;
-const AUDIO_MIN_AHEAD_SECONDS = 0.025;
-
-// Голосовая активация «Катя»
+// Голосовая активация
 let wakeRecognition = null;
 let wakeEnabled = true;
 let wakeListening = false;
 let wakeStarting = false;
 let wakeRestartTimer = null;
 let wakeGreetingPending = false;
+let lastRestoreTime = 0;
+let pageWasHidden = false;
+
+const AUDIO_BUFFER_SECONDS = 0.20;
+const AUDIO_MIN_AHEAD_SECONDS = 0.025;
 
 // ===============================
-// ОПРЕДЕЛЕНИЕ УСТРОЙСТВА
+// УСТРОЙСТВО
 // ===============================
 
 function isIOSDevice() {
   return /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-    (
-      navigator.platform === "MacIntel" &&
-      navigator.maxTouchPoints > 1
-    );
+    (navigator.platform === "MacIntel" &&
+     navigator.maxTouchPoints > 1);
 }
 
 function isAndroidDevice() {
@@ -65,116 +68,64 @@ const katyaApps = {
   youtube: {
     name: "YouTube",
     aliases: ["youtube", "ютуб", "ютюб"],
-
-    androidUrl:
-      "intent://www.youtube.com/#Intent;scheme=https;package=com.google.android.youtube;end",
-
-    iosUrl:
-      "https://www.youtube.com/",
-
-    webUrl:
-      "https://www.youtube.com/"
+    androidUrl: "intent://www.youtube.com/#Intent;scheme=https;package=com.google.android.youtube;end",
+    iosUrl: "https://www.youtube.com/",
+    webUrl: "https://www.youtube.com/"
   },
 
   telegram: {
     name: "Telegram",
     aliases: ["telegram", "телеграм", "телеграмм"],
-
-    androidUrl:
-      "intent://resolve/#Intent;scheme=tg;package=org.telegram.messenger;end",
-
-    iosUrl:
-      "https://t.me/",
-
-    webUrl:
-      "https://web.telegram.org/"
+    androidUrl: "intent://resolve/#Intent;scheme=tg;package=org.telegram.messenger;end",
+    iosUrl: "https://t.me/",
+    webUrl: "https://web.telegram.org/"
   },
 
   tiktok: {
     name: "TikTok",
     aliases: ["tiktok", "тик ток", "тикток"],
-
-    androidUrl:
-      "intent://www.tiktok.com/#Intent;scheme=https;package=com.zhiliaoapp.musically;end",
-
-    iosUrl:
-      "https://www.tiktok.com/",
-
-    webUrl:
-      "https://www.tiktok.com/"
+    androidUrl: "intent://www.tiktok.com/#Intent;scheme=https;package=com.zhiliaoapp.musically;end",
+    iosUrl: "https://www.tiktok.com/",
+    webUrl: "https://www.tiktok.com/"
   },
 
   chrome: {
     name: "Chrome",
     aliases: ["chrome", "гугл хром", "хром"],
-
-    androidUrl:
-      "intent://www.google.com/#Intent;scheme=https;package=com.android.chrome;end",
-
-    iosUrl:
-      "https://www.google.com/",
-
-    webUrl:
-      "https://www.google.com/"
+    androidUrl: "intent://www.google.com/#Intent;scheme=https;package=com.android.chrome;end",
+    iosUrl: "https://www.google.com/",
+    webUrl: "https://www.google.com/"
   },
 
   instagram: {
     name: "Instagram",
     aliases: ["instagram", "инстаграм", "инстаграмм"],
-
-    androidUrl:
-      "intent://www.instagram.com/#Intent;scheme=https;package=com.instagram.android;end",
-
-    iosUrl:
-      "https://www.instagram.com/",
-
-    webUrl:
-      "https://www.instagram.com/"
+    androidUrl: "intent://www.instagram.com/#Intent;scheme=https;package=com.instagram.android;end",
+    iosUrl: "https://www.instagram.com/",
+    webUrl: "https://www.instagram.com/"
   },
 
   facebook: {
     name: "Facebook",
     aliases: ["facebook", "фейсбук"],
-
-    androidUrl:
-      "intent://www.facebook.com/#Intent;scheme=https;package=com.facebook.katana;end",
-
-    iosUrl:
-      "https://www.facebook.com/",
-
-    webUrl:
-      "https://www.facebook.com/"
+    androidUrl: "intent://www.facebook.com/#Intent;scheme=https;package=com.facebook.katana;end",
+    iosUrl: "https://www.facebook.com/",
+    webUrl: "https://www.facebook.com/"
   },
 
   whatsapp: {
     name: "WhatsApp",
     aliases: ["whatsapp", "ватсап", "ватсапп", "вотсап"],
-
-    androidUrl:
-      "intent://send/#Intent;scheme=whatsapp;package=com.whatsapp;end",
-
-    iosUrl:
-      "https://wa.me/",
-
-    webUrl:
-      "https://web.whatsapp.com/"
+    androidUrl: "intent://send/#Intent;scheme=whatsapp;package=com.whatsapp;end",
+    iosUrl: "https://wa.me/",
+    webUrl: "https://web.whatsapp.com/"
   },
 
   settings: {
     name: "Настройки планшета",
-
-    aliases: [
-      "настройки планшета",
-      "настройки телефона",
-      "настройки",
-      "settings"
-    ],
-
-    androidUrl:
-      "intent://com.android.settings/#Intent;scheme=android-app;end",
-
+    aliases: ["настройки планшета", "настройки телефона", "настройки", "settings"],
+    androidUrl: "intent://com.android.settings/#Intent;scheme=android-app;end",
     iosUrl: null,
-
     webUrl: null
   }
 };
@@ -185,94 +136,56 @@ const katyaApps = {
 
 function launchAndroidApp(appKey) {
   const app = katyaApps[appKey];
-
   if (!app) return false;
 
-  console.log("Катя запускает приложение:", app.name);
-
   try {
-    window.location.assign(
-      app.androidUrl || app.webUrl
-    );
-
+    window.location.assign(app.androidUrl || app.webUrl);
     return true;
   } catch (error) {
-    console.error("Ошибка запуска Android:", error);
+    console.error("Ошибка Android:", error);
     return false;
   }
 }
 
 function launchIOSApp(appKey) {
   const app = katyaApps[appKey];
-
   if (!app) return false;
 
-  // iOS не разрешает сайтам напрямую открывать
-  // системные настройки устройства.
   if (appKey === "settings") {
     addMessage(
       "На iPhone Safari не может напрямую открыть системные настройки. Открой их через значок Настройки. ❤️",
       "katya"
     );
-
     return false;
   }
 
-  console.log("Катя открывает приложение iOS:", app.name);
-
   try {
-    // Используем HTTPS Universal Links.
-    // iOS может передать ссылку установленному приложению.
-    // Если приложение не установлено, откроется сайт.
-
-    window.location.assign(
-      app.iosUrl || app.webUrl
-    );
-
+    window.location.assign(app.iosUrl || app.webUrl);
     return true;
-
   } catch (error) {
-    console.error("Ошибка запуска iOS:", error);
-
-    if (app.webUrl) {
-      window.location.assign(app.webUrl);
-      return true;
-    }
-
+    console.error("Ошибка iOS:", error);
     return false;
   }
 }
 
 function launchDesktopApp(appKey) {
   const app = katyaApps[appKey];
-
   if (!app) return false;
 
   if (!app.webUrl) {
-    addMessage(
-      "Это приложение нельзя открыть напрямую из браузера.",
-      "katya"
-    );
-
+    addMessage("Это приложение нельзя открыть напрямую из браузера.", "katya");
     return false;
   }
 
   window.location.assign(app.webUrl);
-
   return true;
 }
 
-// Универсальный запуск
 function launchApp(appKey) {
   if (!katyaApps[appKey]) return false;
 
-  if (isIOSDevice()) {
-    return launchIOSApp(appKey);
-  }
-
-  if (isAndroidDevice()) {
-    return launchAndroidApp(appKey);
-  }
+  if (isIOSDevice()) return launchIOSApp(appKey);
+  if (isAndroidDevice()) return launchAndroidApp(appKey);
 
   return launchDesktopApp(appKey);
 }
@@ -297,9 +210,7 @@ function addMessage(text, type) {
 }
 
 function setOrb(active) {
-  if (orb) {
-    orb.classList.toggle("active", active);
-  }
+  if (orb) orb.classList.toggle("active", active);
 }
 
 function setVoiceButton(active) {
@@ -334,38 +245,28 @@ function normalizeCommandText(text) {
 
 function detectAppCommand(text) {
   const normalized = normalizeCommandText(text);
-
   if (!normalized) return null;
 
   const hasLaunchVerb =
-    /(^|\s)(открой|открывай|запусти|запускай|включи|перейди|зайди|покажи)(\s|$)/i
-      .test(normalized);
+    /(^|\s)(открой|открывай|запусти|запускай|включи|перейди|зайди|покажи)(\s|$)/i.test(normalized);
 
   if (!hasLaunchVerb) return null;
 
-  const appKeys = Object.keys(katyaApps);
-
-  for (const key of appKeys) {
-    const app = katyaApps[key];
-
-    const aliases = [...app.aliases].sort(
+  for (const key of Object.keys(katyaApps)) {
+    const aliases = [...katyaApps[key].aliases].sort(
       (a, b) => b.length - a.length
     );
 
     for (const alias of aliases) {
-      if (normalized.includes(alias)) {
-        return key;
-      }
+      if (normalized.includes(alias)) return key;
     }
   }
 
   return null;
 }
 
-// Кнопка запуска приложения
 function showAppLaunchButton(appKey) {
   const app = katyaApps[appKey];
-
   if (!app || !chat) return;
 
   const now = Date.now();
@@ -373,9 +274,7 @@ function showAppLaunchButton(appKey) {
   if (
     lastLaunchedApp === appKey &&
     now - lastLaunchTime < 4000
-  ) {
-    return;
-  }
+  ) return;
 
   lastLaunchedApp = appKey;
   lastLaunchTime = now;
@@ -384,12 +283,9 @@ function showAppLaunchButton(appKey) {
   container.className = "message katya";
 
   const text = document.createElement("div");
-
-  text.textContent =
-    `Открываю ${app.name}. ❤️`;
+  text.textContent = `Открываю ${app.name}. ❤️`;
 
   const button = document.createElement("button");
-
   button.type = "button";
   button.className = "app-launch-button";
   button.textContent = `Открыть ${app.name}`;
@@ -399,16 +295,12 @@ function showAppLaunchButton(appKey) {
   button.style.padding = "11px 18px";
   button.style.border = "none";
   button.style.borderRadius = "20px";
-  button.style.background =
-    "linear-gradient(135deg, #ff75b5, #e83e91)";
+  button.style.background = "linear-gradient(135deg, #ff75b5, #e83e91)";
   button.style.color = "#ffffff";
   button.style.fontWeight = "600";
   button.style.cursor = "pointer";
 
-  // Запуск непосредственно по нажатию пользователя.
-  button.addEventListener("click", () => {
-    launchApp(appKey);
-  });
+  button.addEventListener("click", () => launchApp(appKey));
 
   container.appendChild(text);
   container.appendChild(button);
@@ -416,12 +308,11 @@ function showAppLaunchButton(appKey) {
   chat.appendChild(container);
   chat.scrollTop = chat.scrollHeight;
 
-  // Автоматическая попытка запуска.
   launchApp(appKey);
 }
 
 // ===============================
-// ОБРАБОТКА РАСПОЗНАННОГО ТЕКСТА
+// ТРАНСКРИПЦИЯ
 // ===============================
 
 function mergeTranscription(current, incoming) {
@@ -431,18 +322,10 @@ function mergeTranscription(current, incoming) {
   if (!incoming) return current;
   if (!current) return incoming;
 
-  if (incoming.startsWith(current)) {
-    return incoming;
-  }
+  if (incoming.startsWith(current)) return incoming;
+  if (current.startsWith(incoming)) return current;
 
-  if (current.startsWith(incoming)) {
-    return current;
-  }
-
-  const maxOverlap = Math.min(
-    current.length,
-    incoming.length
-  );
+  const maxOverlap = Math.min(current.length, incoming.length);
 
   for (let i = maxOverlap; i > 0; i--) {
     if (
@@ -460,15 +343,10 @@ function collectInputTranscription(text, isFinal = false) {
   if (!text) return;
 
   const incoming = String(text).trim();
-
   if (!incoming) return;
 
   if (isFinal) {
-    inputTextBuffer = mergeTranscription(
-      inputTextBuffer,
-      incoming
-    );
-
+    inputTextBuffer = mergeTranscription(inputTextBuffer, incoming);
     latestInterimTranscription = "";
   } else {
     latestInterimTranscription = incoming;
@@ -509,9 +387,7 @@ function finishInputTranscription() {
 
   const appKey = detectAppCommand(recognizedText);
 
-  if (appKey) {
-    showAppLaunchButton(appKey);
-  }
+  if (appKey) showAppLaunchButton(appKey);
 }
 
 function clearInputTranscription() {
@@ -525,12 +401,11 @@ function clearInputTranscription() {
 }
 
 // ===============================
-// ОБРАБОТКА АУДИО
+// АУДИО
 // ===============================
 
 function convertTo16kHz(input, inputRate) {
-  const outputRate = 16000;
-  const ratio = inputRate / outputRate;
+  const ratio = inputRate / 16000;
   const outputLength = Math.floor(input.length / ratio);
   const output = new Int16Array(outputLength);
 
@@ -543,12 +418,9 @@ function convertTo16kHz(input, inputRate) {
     const second = input[index + 1] || first;
 
     let sample = first + (second - first) * fraction;
-
     sample = Math.max(-1, Math.min(1, sample));
 
-    output[i] = sample < 0
-      ? sample * 32768
-      : sample * 32767;
+    output[i] = sample < 0 ? sample * 32768 : sample * 32767;
   }
 
   return output;
@@ -577,16 +449,13 @@ function stopAllAudio() {
 
   audioSources.clear();
 
-  audioNextTime = audioContext
-    ? audioContext.currentTime
-    : 0;
-
+  audioNextTime = audioContext ? audioContext.currentTime : 0;
   assistantSpeaking = false;
   assistantTurnActive = false;
 }
 
 // ===============================
-// ПРИВЕТСТВИЕ КАТИ
+// ПРИВЕТСТВИЕ
 // ===============================
 
 function speakWakeGreeting() {
@@ -600,35 +469,25 @@ function speakWakeGreeting() {
   }
 
   const greeting = new SpeechSynthesisUtterance("Я слушаю");
-
   greeting.lang = "ru-RU";
   greeting.rate = 1;
 
   assistantSpeaking = true;
 
-  greeting.onend = () => {
-    assistantSpeaking = false;
-  };
-
-  greeting.onerror = () => {
-    assistantSpeaking = false;
-  };
+  greeting.onend = () => assistantSpeaking = false;
+  greeting.onerror = () => assistantSpeaking = false;
 
   try {
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(greeting);
   } catch (error) {
     assistantSpeaking = false;
-
-    console.warn(
-      "Не удалось произнести приветствие:",
-      error
-    );
+    console.warn("Ошибка приветствия:", error);
   }
 }
 
 // ===============================
-// ГОЛОС GEMINI
+// ВОСПРОИЗВЕДЕНИЕ GEMINI
 // ===============================
 
 function playAudio(base64) {
@@ -650,12 +509,7 @@ function playAudio(base64) {
 
     if (!samples.length) return;
 
-    const buffer = audioContext.createBuffer(
-      1,
-      samples.length,
-      24000
-    );
-
+    const buffer = audioContext.createBuffer(1, samples.length, 24000);
     const channel = buffer.getChannelData(0);
 
     for (let i = 0; i < samples.length; i++) {
@@ -663,12 +517,8 @@ function playAudio(base64) {
     }
 
     const audioSource = audioContext.createBufferSource();
-
     audioSource.buffer = buffer;
-
-    audioSource.connect(
-      audioOutputNode || audioContext.destination
-    );
+    audioSource.connect(audioOutputNode || audioContext.destination);
 
     assistantTurnActive = true;
     assistantSpeaking = true;
@@ -678,24 +528,18 @@ function playAudio(base64) {
     audioSource.onended = () => {
       audioSources.delete(audioSource);
 
-      if (
-        audioSources.size === 0 &&
-        !assistantTurnActive
-      ) {
+      if (audioSources.size === 0 && !assistantTurnActive) {
         assistantSpeaking = false;
       }
     };
 
     const now = audioContext.currentTime;
 
-    if (
-      audioNextTime < now + AUDIO_MIN_AHEAD_SECONDS
-    ) {
+    if (audioNextTime < now + AUDIO_MIN_AHEAD_SECONDS) {
       audioNextTime = now + AUDIO_BUFFER_SECONDS;
     }
 
     audioSource.start(audioNextTime);
-
     audioNextTime += buffer.duration;
 
   } catch (error) {
@@ -706,15 +550,13 @@ function playAudio(base64) {
 function finishOutputText() {
   const text = outputTextBuffer.trim();
 
-  if (text) {
-    addMessage(text, "katya");
-  }
+  if (text) addMessage(text, "katya");
 
   outputTextBuffer = "";
 }
 
 // ===============================
-// ОБРАБОТКА GEMINI
+// GEMINI
 // ===============================
 
 function processGeminiMessage(message) {
@@ -724,10 +566,7 @@ function processGeminiMessage(message) {
     setStatus("Катя подключена. Можешь говорить.");
     setOrb(true);
 
-    if (wakeGreetingPending) {
-      speakWakeGreeting();
-    }
-
+    if (wakeGreetingPending) speakWakeGreeting();
     return;
   }
 
@@ -747,16 +586,12 @@ function processGeminiMessage(message) {
   const data = message.data || {};
 
   if (data.error) {
-    setStatus(
-      "Ошибка Gemini: " +
-      (data.error.message || JSON.stringify(data.error))
-    );
-
+    setStatus("Ошибка Gemini: " +
+      (data.error.message || JSON.stringify(data.error)));
     return;
   }
 
   const content = data.serverContent;
-
   if (!content) return;
 
   if (content.interrupted) {
@@ -767,11 +602,6 @@ function processGeminiMessage(message) {
   }
 
   if (content.interimInputTranscription?.text) {
-    console.log(
-      "Промежуточное распознавание:",
-      content.interimInputTranscription.text
-    );
-
     collectInputTranscription(
       content.interimInputTranscription.text,
       false
@@ -779,11 +609,6 @@ function processGeminiMessage(message) {
   }
 
   if (content.inputTranscription?.text) {
-    console.log(
-      "Ты сказал:",
-      content.inputTranscription.text
-    );
-
     collectInputTranscription(
       content.inputTranscription.text,
       true
@@ -796,9 +621,7 @@ function processGeminiMessage(message) {
     const parts = content.modelTurn?.parts || [];
 
     for (const part of parts) {
-      if (part.text) {
-        outputTextBuffer += part.text;
-      }
+      if (part.text) outputTextBuffer += part.text;
     }
   }
 
@@ -838,55 +661,41 @@ async function startMicrophone() {
 
   audioContext = new (
     window.AudioContext || window.webkitAudioContext
-  )({
-    latencyHint: "interactive"
-  });
+  )({ latencyHint: "interactive" });
 
   await audioContext.resume();
 
-  audioOutputDestination =
-    audioContext.createMediaStreamDestination();
-
+  audioOutputDestination = audioContext.createMediaStreamDestination();
   audioOutputNode = audioOutputDestination;
 
   audioOutputElement = document.createElement("audio");
-
   audioOutputElement.autoplay = true;
   audioOutputElement.playsInline = true;
   audioOutputElement.muted = false;
   audioOutputElement.volume = 1;
-
-  audioOutputElement.srcObject =
-    audioOutputDestination.stream;
-
+  audioOutputElement.srcObject = audioOutputDestination.stream;
   audioOutputElement.setAttribute("aria-hidden", "true");
 
-  audioOutputElement.style.position = "fixed";
-  audioOutputElement.style.width = "1px";
-  audioOutputElement.style.height = "1px";
-  audioOutputElement.style.opacity = "0";
-  audioOutputElement.style.pointerEvents = "none";
+  Object.assign(audioOutputElement.style, {
+    position: "fixed",
+    width: "1px",
+    height: "1px",
+    opacity: "0",
+    pointerEvents: "none"
+  });
 
   document.body.appendChild(audioOutputElement);
 
   try {
     await audioOutputElement.play();
   } catch (error) {
-    console.warn(
-      "Bluetooth audio element playback unavailable:",
-      error
-    );
-
+    console.warn("Audio playback unavailable:", error);
     audioOutputNode = audioContext.destination;
   }
 
   source = audioContext.createMediaStreamSource(microphone);
 
-  processor = audioContext.createScriptProcessor(
-    2048,
-    1,
-    1
-  );
+  processor = audioContext.createScriptProcessor(2048, 1, 1);
 
   muteGain = audioContext.createGain();
   muteGain.gain.value = 0;
@@ -895,17 +704,12 @@ async function startMicrophone() {
     if (
       !voiceActive ||
       !socket ||
-      socket.readyState !== WebSocket.OPEN
-    ) {
-      return;
-    }
+      socket.readyState !== WebSocket.OPEN ||
+      !audioContext
+    ) return;
 
     const input = event.inputBuffer.getChannelData(0);
-
-    const pcm = convertTo16kHz(
-      input,
-      audioContext.sampleRate
-    );
+    const pcm = convertTo16kHz(input, audioContext.sampleRate);
 
     if (!pcm.length) return;
 
@@ -977,20 +781,26 @@ function stopWakeWordListening() {
     wakeRestartTimer = null;
   }
 
-  if (wakeRecognition && wakeListening) {
-    try {
-      wakeRecognition.stop();
-    } catch (error) {}
-  }
+  const oldRecognition = wakeRecognition;
+  wakeRecognition = null;
 
   wakeListening = false;
   wakeStarting = false;
+
+  if (oldRecognition) {
+    try {
+      oldRecognition.onend = null;
+      oldRecognition.onresult = null;
+      oldRecognition.onerror = null;
+      oldRecognition.abort();
+    } catch (error) {}
+  }
 }
 
 function handleWakeWord() {
-  if (!wakeEnabled || voiceActive) return;
+  if (!wakeEnabled || voiceActive || voiceStarting) return;
 
-  console.log("Обнаружено ключевое слово: Катя");
+  console.log("Обнаружено слово Катя");
 
   wakeEnabled = false;
   wakeGreetingPending = true;
@@ -1002,111 +812,214 @@ function handleWakeWord() {
   startVoiceMode();
 }
 
-function startWakeWordListening() {
-  if (
-    !wakeEnabled ||
-    voiceActive ||
-    wakeListening ||
-    wakeStarting
-  ) {
-    return;
-  }
-
+function createWakeRecognition() {
   const SpeechRecognition =
     window.SpeechRecognition ||
     window.webkitSpeechRecognition;
 
   if (!SpeechRecognition) {
-    setStatus(
-      "Голосовая активация не поддерживается этим браузером. Открой Катю в Chrome."
-    );
-
-    return;
+    setStatus("Голосовая активация не поддерживается этим браузером.");
+    return null;
   }
 
-  if (!wakeRecognition) {
-    wakeRecognition = new SpeechRecognition();
+  const recognition = new SpeechRecognition();
 
-    wakeRecognition.lang = "ru-RU";
-    wakeRecognition.continuous = true;
-    wakeRecognition.interimResults = true;
-    wakeRecognition.maxAlternatives = 3;
+  recognition.lang = "ru-RU";
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 3;
 
-    wakeRecognition.onresult = event => {
-      for (
-        let i = event.resultIndex;
-        i < event.results.length;
-        i++
-      ) {
-        const result = event.results[i];
-
-        for (let j = 0; j < result.length; j++) {
-          const recognized = normalizeCommandText(
-            result[j].transcript
-          );
-
-          if (/(^|\s)катя($|\s)/i.test(recognized)) {
-            handleWakeWord();
-            return;
-          }
-        }
-      }
-    };
-
-    wakeRecognition.onerror = event => {
-      console.warn(
-        "Ошибка ожидания слова Катя:",
-        event.error
-      );
-
-      if (
-        event.error === "not-allowed" ||
-        event.error === "service-not-allowed"
-      ) {
-        wakeEnabled = false;
-
-        setStatus(
-          "Разреши микрофон браузеру для голосовой активации."
-        );
-      }
-    };
-
-    wakeRecognition.onend = () => {
-      wakeListening = false;
-      wakeStarting = false;
-
-      if (wakeEnabled && !voiceActive) {
-        wakeRestartTimer = setTimeout(() => {
-          wakeRestartTimer = null;
-          startWakeWordListening();
-        }, 1000);
-      }
-    };
-  }
-
-  try {
-    wakeStarting = true;
-
-    wakeRecognition.start();
+  recognition.onstart = () => {
+    if (wakeRecognition !== recognition) return;
 
     wakeListening = true;
     wakeStarting = false;
 
-    setStatus("Катя ждёт твоего обращения ❤️");
+    console.log("Катя слушает.");
+  };
+
+  recognition.onresult = event => {
+    if (
+      !wakeEnabled ||
+      voiceActive ||
+      wakeRecognition !== recognition
+    ) return;
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const result = event.results[i];
+
+      for (let j = 0; j < result.length; j++) {
+        const recognized = normalizeCommandText(
+          result[j].transcript
+        );
+
+        if (/(^|\s)катя($|\s)/i.test(recognized)) {
+          handleWakeWord();
+          return;
+        }
+      }
+    }
+  };
+
+  recognition.onerror = event => {
+    console.warn("Ошибка распознавания:", event.error);
+
+    if (wakeRecognition !== recognition) return;
+
+    wakeListening = false;
+    wakeStarting = false;
+
+    if (
+      event.error === "not-allowed" ||
+      event.error === "service-not-allowed"
+    ) {
+      wakeEnabled = false;
+      setStatus("Разреши Safari доступ к микрофону.");
+      return;
+    }
+
+    if (wakeEnabled && !voiceActive) {
+      restartWakeWordListening();
+    }
+  };
+
+  recognition.onend = () => {
+    if (wakeRecognition !== recognition) return;
+
+    wakeListening = false;
+    wakeStarting = false;
+
+    if (wakeEnabled && !voiceActive) {
+      restartWakeWordListening();
+    }
+  };
+
+  return recognition;
+}
+
+function startWakeWordListening() {
+  if (
+    !wakeEnabled ||
+    voiceActive ||
+    voiceStarting ||
+    wakeListening ||
+    wakeStarting ||
+    document.visibilityState === "hidden"
+  ) return;
+
+  if (!wakeRecognition) {
+    wakeRecognition = createWakeRecognition();
+  }
+
+  if (!wakeRecognition) return;
+
+  try {
+    wakeStarting = true;
+    wakeRecognition.start();
 
   } catch (error) {
     wakeStarting = false;
 
-    console.warn(
-      "Не удалось включить ожидание слова:",
-      error
-    );
+    console.warn("Ошибка запуска ожидания:", error);
 
     if (error.name === "NotAllowedError") {
       wakeEnabled = false;
       setStatus("Разреши использование микрофона.");
+      return;
     }
+
+    if (error.name === "InvalidStateError") {
+      const oldRecognition = wakeRecognition;
+      wakeRecognition = null;
+
+      try {
+        oldRecognition.abort();
+      } catch (e) {}
+    }
+
+    restartWakeWordListening();
   }
+}
+
+// ===============================
+// ПОВТОРНАЯ АКТИВАЦИЯ
+// ===============================
+
+function restartWakeWordListening() {
+  if (!wakeEnabled || voiceActive || voiceStarting) return;
+
+  if (wakeRestartTimer) {
+    clearTimeout(wakeRestartTimer);
+  }
+
+  wakeRestartTimer = setTimeout(() => {
+    wakeRestartTimer = null;
+
+    if (
+      !wakeEnabled ||
+      voiceActive ||
+      voiceStarting ||
+      document.visibilityState === "hidden"
+    ) return;
+
+    // Создаём новый экземпляр распознавания.
+    if (wakeRecognition && !wakeListening) {
+      const oldRecognition = wakeRecognition;
+      wakeRecognition = null;
+
+      try {
+        oldRecognition.abort();
+      } catch (error) {}
+    }
+
+    startWakeWordListening();
+
+  }, 1200);
+}
+
+// ===============================
+// ВОССТАНОВЛЕНИЕ ПОСЛЕ YOUTUBE
+// ===============================
+
+function restoreKatyaAfterBackground() {
+  if (document.visibilityState === "hidden") return;
+
+  const now = Date.now();
+
+  // Защита от повторных событий Safari.
+  if (now - lastRestoreTime < 2500) return;
+
+  lastRestoreTime = now;
+
+  console.log("Восстанавливаю Катю после возвращения.");
+
+  // Останавливаем старое соединение и микрофон.
+  if (
+    voiceActive ||
+    voiceStarting ||
+    socket ||
+    microphone ||
+    audioContext
+  ) {
+    stopVoiceMode();
+  }
+
+  // Возвращаем ожидание ключевого слова.
+  wakeGreetingPending = false;
+  wakeEnabled = true;
+
+  stopWakeWordListening();
+
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+  }
+
+  setOrb(false);
+  setVoiceButton(false);
+
+  setStatus("Катя снова слушает ❤️");
+
+  restartWakeWordListening();
 }
 
 // ===============================
@@ -1114,7 +1027,7 @@ function startWakeWordListening() {
 // ===============================
 
 async function startVoiceMode() {
-  if (voiceActive) return;
+  if (voiceActive || voiceStarting) return;
 
   wakeEnabled = false;
   stopWakeWordListening();
@@ -1127,11 +1040,11 @@ async function startVoiceMode() {
 
   const currentSession = ++sessionId;
 
+  voiceStarting = true;
   voiceActive = true;
 
   assistantSpeaking = false;
   assistantTurnActive = false;
-
   outputTextBuffer = "";
 
   clearInputTranscription();
@@ -1149,9 +1062,7 @@ async function startVoiceMode() {
       return;
     }
 
-    const protocol = location.protocol === "https:"
-      ? "wss:"
-      : "ws:";
+    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 
     const newSocket = new WebSocket(
       `${protocol}//${location.host}/live`
@@ -1164,16 +1075,10 @@ async function startVoiceMode() {
     };
 
     newSocket.onmessage = event => {
-      if (
-        !voiceActive ||
-        socket !== newSocket
-      ) {
-        return;
-      }
+      if (!voiceActive || socket !== newSocket) return;
 
       try {
-        const data = JSON.parse(event.data);
-        processGeminiMessage(data);
+        processGeminiMessage(JSON.parse(event.data));
       } catch (error) {
         console.error("Ошибка сообщения:", error);
       }
@@ -1186,20 +1091,10 @@ async function startVoiceMode() {
     };
 
     newSocket.onclose = event => {
-      console.log(
-        "WebSocket закрыт:",
-        event.code,
-        event.reason
-      );
+      console.log("WebSocket закрыт:", event.code, event.reason);
 
-      if (
-        voiceActive &&
-        socket === newSocket
-      ) {
-        setStatus(
-          "Соединение прервано. Код: " + event.code
-        );
-
+      if (voiceActive && socket === newSocket) {
+        setStatus("Соединение прервано. Код: " + event.code);
         stopVoiceMode();
       }
     };
@@ -1211,24 +1106,11 @@ async function startVoiceMode() {
       setStatus("Ошибка микрофона: " + error.message);
       stopVoiceMode();
     }
+  } finally {
+    if (currentSession === sessionId) {
+      voiceStarting = false;
+    }
   }
-}
-
-// ===============================
-// ПОВТОРНАЯ АКТИВАЦИЯ
-// ===============================
-
-function restartWakeWordListening() {
-  if (!wakeEnabled || voiceActive) return;
-
-  if (wakeRestartTimer) {
-    clearTimeout(wakeRestartTimer);
-  }
-
-  wakeRestartTimer = setTimeout(() => {
-    wakeRestartTimer = null;
-    startWakeWordListening();
-  }, 1000);
 }
 
 // ===============================
@@ -1236,17 +1118,9 @@ function restartWakeWordListening() {
 // ===============================
 
 function stopVoiceMode() {
-  if (
-    !voiceActive &&
-    !socket &&
-    !microphone
-  ) {
-    wakeEnabled = true;
-    restartWakeWordListening();
-    return;
-  }
-
   voiceActive = false;
+  voiceStarting = false;
+
   sessionId++;
 
   stopMicrophone();
@@ -1281,6 +1155,7 @@ function stopVoiceMode() {
   wakeGreetingPending = false;
   wakeEnabled = true;
 
+  stopWakeWordListening();
   restartWakeWordListening();
 }
 
@@ -1289,15 +1164,15 @@ function stopVoiceMode() {
 // ===============================
 
 async function sendTextMessage() {
-  const message = messageInput.value.trim();
+  if (!messageInput) return;
 
+  const message = messageInput.value.trim();
   if (!message) return;
 
   messageInput.value = "";
 
   addMessage(message, "user");
 
-  // Команда запуска приложения
   const appKey = detectAppCommand(message);
 
   if (appKey) {
@@ -1308,11 +1183,9 @@ async function sendTextMessage() {
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
-
       headers: {
         "Content-Type": "application/json"
       },
-
       body: JSON.stringify({
         message,
         history
@@ -1325,8 +1198,7 @@ async function sendTextMessage() {
       throw new Error(data.error || "Ошибка сервера");
     }
 
-    const reply =
-      data.reply || "Не получилось получить ответ.";
+    const reply = data.reply || "Не получилось получить ответ.";
 
     addMessage(reply, "katya");
 
@@ -1363,7 +1235,7 @@ if (messageInput) {
 
 if (voiceButton) {
   voiceButton.addEventListener("click", () => {
-    if (voiceActive) {
+    if (voiceActive || voiceStarting) {
       stopVoiceMode();
     } else {
       wakeEnabled = false;
@@ -1378,7 +1250,42 @@ if (voiceExit) {
 }
 
 // ===============================
-// АВТОЗАПУСК ОЖИДАНИЯ «КАТЯ»
+// ВОЗВРАЩЕНИЕ В SAFARI
+// ===============================
+
+window.addEventListener("pageshow", event => {
+  if (event.persisted) {
+    restoreKatyaAfterBackground();
+  }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    pageWasHidden = true;
+    return;
+  }
+
+  if (pageWasHidden) {
+    pageWasHidden = false;
+
+    setTimeout(() => {
+      restoreKatyaAfterBackground();
+    }, 700);
+  }
+});
+
+window.addEventListener("focus", () => {
+  if (pageWasHidden && document.visibilityState === "visible") {
+    pageWasHidden = false;
+
+    setTimeout(() => {
+      restoreKatyaAfterBackground();
+    }, 700);
+  }
+});
+
+// ===============================
+// АВТОЗАПУСК
 // ===============================
 
 window.addEventListener("load", () => {
@@ -1388,8 +1295,17 @@ window.addEventListener("load", () => {
 });
 
 // ===============================
-// ОЧИСТКА ПРИ ЗАКРЫТИИ СТРАНИЦЫ
+// ЗАКРЫТИЕ СТРАНИЦЫ
 // ===============================
+
+window.addEventListener("pagehide", () => {
+  pageWasHidden = true;
+
+  stopWakeWordListening();
+
+  // Не закрываем всю страницу и не удаляем
+  // состояние, необходимое для восстановления.
+});
 
 window.addEventListener("beforeunload", () => {
   wakeEnabled = false;
