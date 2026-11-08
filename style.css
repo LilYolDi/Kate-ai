@@ -1126,3 +1126,118 @@ body[data-theme="dark"] .drawer-icon {
   transition: background .3s ease, color .3s ease, border-color .3s ease;
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* Внешний вид внутри бокового меню */
+
+.appearance-arrow {
+  margin-left: auto;
+  font-size: 19px;
+  color: var(--muted-color);
+  transition: transform .25s;
+}
+
+.theme-options {
+  margin: 0 0 10px 42px;
+  padding: 7px;
+  border-radius: 15px;
+  background: rgba(180,140,170,.09);
+  animation: themeExpand .25s ease;
+}
+
+@keyframes themeExpand {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.theme-choice {
+  width: 100%;
+  min-height: 42px;
+  padding: 6px 9px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-color);
+  text-align: left;
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+}
+
+.theme-choice.selected {
+  background: rgba(220,150,190,.13);
+  border-color: var(--chat-border);
+}
+
+.theme-color {
+  width: 23px;
+  height: 23px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(120,120,120,.25);
+}
+
+.theme-white {
+  background: #fff;
+}
+
+.theme-gray {
+  background: #bdbdc4;
+}
+
+.theme-pink {
+  background: linear-gradient(135deg,#ffc5e4,#d18ac1);
+}
+
+.theme-dark {
+  background: #25252d;
+}
+
+.theme-selected {
+  margin-left: auto;
+  color: var(--accent);
+  font-weight: bold;
+  opacity: 0;
+}
+
+.theme-choice.selected .theme-selected {
+  opacity: 1;
+}
+
+.theme-options[hidden] {
+  display: none !important;
+}
+
+body[data-theme="dark"] .theme-options {
+  background: rgba(255,255,255,.06);
+}
+
+body[data-theme="dark"] .theme-choice {
+  color: #eeeeF3;
+}
