@@ -396,3 +396,46 @@ body.pink-theme .message-input {
     height: 230px;
   }
 }
+
+
+/* Pink Glass Microphone */
+.mic-button {
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.95);
+  background: linear-gradient(145deg, #fff, #f9d5e8);
+  box-shadow:
+    0 0 0 5px rgba(244,170,207,.15),
+    0 8px 25px rgba(218,91,155,.25),
+    inset 0 2px 8px #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mic-glass {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #fff, #f5c2dc);
+  box-shadow: inset 0 2px 8px #fff;
+}
+
+.mic-svg {
+  width: 34px;
+  height: 34px;
+  fill: none;
+  stroke: #ce5795;
+  stroke-width: 2.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mic-button:active {
+  transform: scale(.92);
+}
