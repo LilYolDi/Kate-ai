@@ -1313,3 +1313,482 @@ window.addEventListener("beforeunload", () => {
   stopWakeWordListening();
   stopVoiceMode();
 });
+
+
+
+
+
+// =====================================================
+// KATYA AI — СОХРАНЕНИЕ ИСТОРИИ РАЗГОВОРОВ
+// =====================================================
+
+const KATYA_STORAGE_KEY = "katya_saved_conversations_v1";
+
+let katyaConversationMessages = [];
+let katyaActiveConversationId = null;
+
+// ---------- ХРАНИЛИЩЕ ----------
+
+function getKatyaSavedConversations() {
+  try {
+    return JSON.parse(localStorage.getItem(KATYA_STORAGE_KEY)) || [];
+  } catch (error) {
+    console.error("Ошибка чтения истории:", error);
+    return [];
+  }
+}
+
+function setKatyaSavedConversations(items) {
+  try {
+    localStorage.setItem(KATYA_STORAGE_KEY, JSON.stringify(items));
+    return true;
+  } catch (error) {
+    console.error("Ошибка сохранения истории:", error);
+    addMessage("Не удалось сохранить разговор. Возможно, память браузера заполнена.", "katya");
+    return false;
+  }
+}
+
+// ---------- ЗАПИСЬ СООБЩЕНИЙ ----------
+
+function recordKatyaMessage(role, text) {
+  if (!text || !text.trim()) return;
+
+  katyaConversationMessages.push({
+    role,
+    text: text.trim(),
+    date: new Date().toISOString()
+  });
+
+  if (katyaActiveConversationId) {
+    updateKatyaActiveConversation();
+  }
+}
+
+function updateKatyaActiveConversation() {
+  const conversations = getKatyaSavedConversations();
+
+  const index = conversations.findIndex(
+    item => item.id === katyaActiveConversationId
+  );
+
+  if (index === -1) return;
+
+  conversations[index].messages = [...katyaConversationMessages];
+  conversations[index].updatedAt = new Date().toISOString();
+
+  setKatyaSavedConversations(conversations);
+}
+
+// ---------- СОХРАНЕНИЕ РАЗГОВОРА ----------
+
+function saveKatyaConversation(title) {
+  title = String(title || "").trim();
+
+  if (!title) {
+    addMessage("Назови разговор, который нужно сохранить. ❤️", "katya");
+    return;
+  }
+
+  if (!katyaConversationMessages.length) {
+    addMessage("Пока нечего сохранять. Давай сначала поговорим. ❤️", "katya");
+    return;
+  }
+
+  const conversations = getKatyaSavedConversations();
+
+  const conversation = {
+    id: "katya_" + Date.now(),
+    title: title,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    messages: [...katyaConversationMessages]
+  };
+
+  conversations.unshift(conversation);
+
+  if (!setKatyaSavedConversations(conversations)) return;
+
+  katyaActiveConversationId = conversation.id;
+
+  addMessage(`Я сохранила наш разговор «${title}». ❤️`, "katya");
+
+  renderKatyaHistory();
+}
+
+// ---------- РАСПОЗНАВАНИЕ КОМАНДЫ ----------
+
+function detectSaveConversationCommand(text) {
+  const normalized = String(text || "")
+    .replace(/[ё]/gi, "е")
+    .trim();
+
+  const match = normalized.match(
+    /(?:катя[\s,]*)?запомни\s+(?:этот\s+)?разговор\s*(?:(?:под\s+)?названием\s+|под\s+именем\s+|[:\-]\s*|[—]\s*)?(.+)?$/i
+  );
+
+  if (!match) return null;
+
+  let title = (match[1] || "").trim();
+
+  title = title.replace(/[.!?]+$/, "").trim();
+
+  return {
+    title: title || null
+  };
+}
+
+// ---------- ОТКРЫТИЕ СОХРАНЁННОГО РАЗГОВОРА ----------
+
+function openKatyaConversation(id) {
+  const conversations = getKatyaSavedConversations();
+
+  const conversation = conversations.find(item => item.id === id);
+
+  if (!conversation) return;
+
+  if (voiceActive || voiceStarting) {
+    stopVoiceMode();
+  }
+
+  katyaActiveConversationId = conversation.id;
+
+  katyaConversationMessages = [...conversation.messages];
+
+  history = conversation.messages.map(message => ({
+    role: message.role === "user" ? "user" : "model",
+    text: message.text
+  }));
+
+  if (history.length > 40) {
+    history = history.slice(-40);
+  }
+
+  if (chat) {
+    chat.innerHTML = "";
+
+    addMessage(
+      `Продолжаем разговор «${conversation.title}». ❤️`,
+      "katya"
+    );
+
+    conversation.messages.forEach(message => {
+      addMessage(
+        message.text,
+        message.role === "user" ? "user" : "katya"
+      );
+    });
+  }
+
+  closeKatyaHistory();
+
+  addMessage(
+    "Я восстановила нашу переписку. Можем продолжить с того места, где остановились. ❤️",
+    "katya"
+  );
+}
+
+// ---------- УДАЛЕНИЕ ----------
+
+function deleteKatyaConversation(id) {
+  const conversations = getKatyaSavedConversations()
+    .filter(item => item.id !== id);
+
+  setKatyaSavedConversations(conversations);
+
+  if (katyaActiveConversationId === id) {
+    katyaActiveConversationId = null;
+  }
+
+  renderKatyaHistory();
+}
+
+// ---------- ИНТЕРФЕЙС ИСТОРИИ ----------
+
+function createKatyaHistoryInterface() {
+  if (document.getElementById("katyaHistoryButton")) return;
+
+  const style = document.createElement("style");
+
+  style.textContent = `
+    #katyaHistoryButton {
+      position: fixed;
+      right: 16px;
+      bottom: 20px;
+      z-index: 9998;
+      padding: 12px 18px;
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 24px;
+      background: linear-gradient(135deg,#ff75b5,#e83e91);
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 5px 20px rgba(232,62,145,.3);
+    }
+
+    #katyaHistoryOverlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: rgba(0,0,0,.75);
+      align-items: center;
+      justify-content: center;
+      padding: 15px;
+    }
+
+    #katyaHistoryPanel {
+      width: 100%;
+      max-width: 480px;
+      max-height: 80vh;
+      overflow-y: auto;
+      padding: 20px;
+      border-radius: 22px;
+      background: #211923;
+      color: white;
+      border: 1px solid rgba(255,255,255,.12);
+    }
+
+    .katya-history-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 14px;
+      background: rgba(255,255,255,.08);
+    }
+
+    .katya-history-open {
+      flex: 1;
+      min-width: 0;
+      text-align: left;
+      background: none;
+      border: none;
+      color: white;
+      cursor: pointer;
+      font-size: 15px;
+    }
+
+    .katya-history-delete {
+      border: none;
+      border-radius: 10px;
+      padding: 9px;
+      background: #a52c53;
+      color: white;
+      cursor: pointer;
+    }
+
+    #katyaHistoryClose {
+      float: right;
+      border: none;
+      background: none;
+      color: white;
+      font-size: 25px;
+      cursor: pointer;
+    }
+  `;
+
+  document.head.appendChild(style);
+
+  const button = document.createElement("button");
+  button.id = "katyaHistoryButton";
+  button.textContent = "📚 История разговоров";
+  button.addEventListener("click", openKatyaHistory);
+
+  document.body.appendChild(button);
+
+  const overlay = document.createElement("div");
+  overlay.id = "katyaHistoryOverlay";
+
+  overlay.innerHTML = `
+    <div id="katyaHistoryPanel">
+      <button id="katyaHistoryClose">×</button>
+      <h2>История разговоров</h2>
+      <div id="katyaHistoryList"></div>
+    </div>
+  `;
+
+  overlay.addEventListener("click", event => {
+    if (event.target === overlay) closeKatyaHistory();
+  });
+
+  document.body.appendChild(overlay);
+
+  document.getElementById("katyaHistoryClose")
+    .addEventListener("click", closeKatyaHistory);
+
+  renderKatyaHistory();
+}
+
+function openKatyaHistory() {
+  renderKatyaHistory();
+
+  const overlay = document.getElementById("katyaHistoryOverlay");
+
+  if (overlay) overlay.style.display = "flex";
+}
+
+function closeKatyaHistory() {
+  const overlay = document.getElementById("katyaHistoryOverlay");
+
+  if (overlay) overlay.style.display = "none";
+}
+
+function renderKatyaHistory() {
+  const list = document.getElementById("katyaHistoryList");
+
+  if (!list) return;
+
+  list.innerHTML = "";
+
+  const conversations = getKatyaSavedConversations();
+
+  if (!conversations.length) {
+    list.textContent = "Пока сохранённых разговоров нет.";
+    return;
+  }
+
+  conversations.forEach(conversation => {
+    const item = document.createElement("div");
+    item.className = "katya-history-item";
+
+    const open = document.createElement("button");
+    open.className = "katya-history-open";
+
+    const date = new Date(conversation.updatedAt)
+      .toLocaleString("ru-RU");
+
+    open.textContent =
+      `💬 ${conversation.title} (${conversation.messages.length} сообщений)`;
+
+    open.title = date;
+
+    open.addEventListener("click", () => {
+      openKatyaConversation(conversation.id);
+    });
+
+    const remove = document.createElement("button");
+    remove.className = "katya-history-delete";
+    remove.textContent = "Удалить";
+
+    remove.addEventListener("click", () => {
+      if (confirm(`Удалить разговор «${conversation.title}»?`)) {
+        deleteKatyaConversation(conversation.id);
+      }
+    });
+
+    item.appendChild(open);
+    item.appendChild(remove);
+
+    list.appendChild(item);
+  });
+}
+
+// ---------- ПЕРЕХВАТ ТЕКСТОВЫХ СООБЩЕНИЙ ----------
+
+const originalSendTextMessage = sendTextMessage;
+
+sendTextMessage = async function() {
+  if (!messageInput) return;
+
+  const message = messageInput.value.trim();
+
+  if (!message) return;
+
+  const saveCommand = detectSaveConversationCommand(message);
+
+  if (saveCommand) {
+    messageInput.value = "";
+
+    if (saveCommand.title) {
+      recordKatyaMessage("user", message);
+      saveKatyaConversation(saveCommand.title);
+    } else {
+      addMessage(
+        "Как назовём этот разговор? Например: «Мои планы». ❤️",
+        "katya"
+      );
+    }
+
+    return;
+  }
+
+  await originalSendTextMessage();
+};
+
+// ---------- ПЕРЕХВАТ ГОЛОСОВЫХ СООБЩЕНИЙ ----------
+
+const originalFinishInputTranscription = finishInputTranscription;
+
+finishInputTranscription = function() {
+  if (inputTranscriptionTimer) {
+    clearTimeout(inputTranscriptionTimer);
+    inputTranscriptionTimer = null;
+  }
+
+  let recognizedText = inputTextBuffer.trim();
+
+  if (!recognizedText) {
+    recognizedText = latestInterimTranscription.trim();
+  }
+
+  inputTextBuffer = "";
+  latestInterimTranscription = "";
+
+  if (!recognizedText) return;
+
+  const saveCommand = detectSaveConversationCommand(recognizedText);
+
+  if (saveCommand) {
+    if (saveCommand.title) {
+      recordKatyaMessage("user", recognizedText);
+      saveKatyaConversation(saveCommand.title);
+    } else {
+      addMessage(
+        "Как назовём этот разговор? ❤️",
+        "katya"
+      );
+    }
+
+    return;
+  }
+
+  recordKatyaMessage("user", recognizedText);
+
+  const appKey = detectAppCommand(recognizedText);
+
+  if (appKey) showAppLaunchButton(appKey);
+};
+
+// ---------- СОХРАНЕНИЕ ОТВЕТОВ GEMINI LIVE ----------
+
+const originalFinishOutputText = finishOutputText;
+
+finishOutputText = function() {
+  const text = outputTextBuffer.trim();
+
+  if (text) {
+    recordKatyaMessage("model", text);
+  }
+
+  originalFinishOutputText();
+};
+
+// ---------- СОХРАНЕНИЕ ТЕКСТОВЫХ СООБЩЕНИЙ ----------
+
+const originalAddMessage = addMessage;
+
+addMessage = function(text, type) {
+  originalAddMessage(text, type);
+};
+
+// ---------- ЗАПУСК ----------
+
+window.addEventListener("load", () => {
+  createKatyaHistoryInterface();
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+  createKatyaHistoryInterface();
+});
