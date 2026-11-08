@@ -1318,20 +1318,28 @@ window.addEventListener("beforeunload", () => {
 
 
 
+
 // =====================================================
-// KATYA AI — СОХРАНЕНИЕ ИСТОРИИ РАЗГОВОРОВ
+// KATYA AI — ИСТОРИЯ РАЗГОВОРОВ
 // =====================================================
 
 const KATYA_STORAGE_KEY = "katya_saved_conversations_v1";
 
 let katyaConversationMessages = [];
 let katyaActiveConversationId = null;
+let katyaWaitingForTitle = false;
 
-// ---------- ХРАНИЛИЩЕ ----------
+// =====================================================
+// ХРАНИЛИЩЕ
+// =====================================================
 
 function getKatyaSavedConversations() {
   try {
-    return JSON.parse(localStorage.getItem(KATYA_STORAGE_KEY)) || [];
+    const data = JSON.parse(
+      localStorage.getItem(KATYA_STORAGE_KEY)
+    );
+
+    return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error("Ошибка чтения истории:", error);
     return [];
@@ -1340,23 +1348,31 @@ function getKatyaSavedConversations() {
 
 function setKatyaSavedConversations(items) {
   try {
-    localStorage.setItem(KATYA_STORAGE_KEY, JSON.stringify(items));
+    localStorage.setItem(
+      KATYA_STORAGE_KEY,
+      JSON.stringify(items)
+    );
     return true;
   } catch (error) {
-    console.error("Ошибка сохранения истории:", error);
-    addMessage("Не удалось сохранить разговор. Возможно, память браузера заполнена.", "katya");
+    console.error("Ошибка сохранения:", error);
+    addMessage("Не удалось сохранить разговор.", "katya");
     return false;
   }
 }
 
-// ---------- ЗАПИСЬ СООБЩЕНИЙ ----------
+// =====================================================
+// ЗАПИСЬ СООБЩЕНИЙ
+// =====================================================
 
 function recordKatyaMessage(role, text) {
-  if (!text || !text.trim()) return;
+  if (!text || typeof text !== "string") return;
+
+  text = text.trim();
+  if (!text) return;
 
   katyaConversationMessages.push({
     role,
-    text: text.trim(),
+    text,
     date: new Date().toISOString()
   });
 
@@ -1374,24 +1390,29 @@ function updateKatyaActiveConversation() {
 
   if (index === -1) return;
 
-  conversations[index].messages = [...katyaConversationMessages];
+  conversations[index].messages = [
+    ...katyaConversationMessages
+  ];
+
   conversations[index].updatedAt = new Date().toISOString();
 
   setKatyaSavedConversations(conversations);
 }
 
-// ---------- СОХРАНЕНИЕ РАЗГОВОРА ----------
+// =====================================================
+// СОХРАНЕНИЕ
+// =====================================================
 
 function saveKatyaConversation(title) {
   title = String(title || "").trim();
 
   if (!title) {
-    addMessage("Назови разговор, который нужно сохранить. ❤️", "katya");
+    addMessage("Назови наш разговор. ❤️", "katya");
     return;
   }
 
   if (!katyaConversationMessages.length) {
-    addMessage("Пока нечего сохранять. Давай сначала поговорим. ❤️", "katya");
+    addMessage("Пока нечего сохранять.", "katya");
     return;
   }
 
@@ -1399,7 +1420,7 @@ function saveKatyaConversation(title) {
 
   const conversation = {
     id: "katya_" + Date.now(),
-    title: title,
+    title,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     messages: [...katyaConversationMessages]
@@ -1411,20 +1432,26 @@ function saveKatyaConversation(title) {
 
   katyaActiveConversationId = conversation.id;
 
-  addMessage(`Я сохранила наш разговор «${title}». ❤️`, "katya");
+  addMessage(
+    `Я сохранила наш разговор «${title}». ❤️`,
+    "katya"
+  );
 
   renderKatyaHistory();
 }
 
-// ---------- РАСПОЗНАВАНИЕ КОМАНДЫ ----------
+// =====================================================
+// КОМАНДА СОХРАНЕНИЯ
+// =====================================================
 
 function detectSaveConversationCommand(text) {
   const normalized = String(text || "")
-    .replace(/[ё]/gi, "е")
+    .toLowerCase()
+    .replace(/ё/g, "е")
     .trim();
 
   const match = normalized.match(
-    /(?:катя[\s,]*)?запомни\s+(?:этот\s+)?разговор\s*(?:(?:под\s+)?названием\s+|под\s+именем\s+|[:\-]\s*|[—]\s*)?(.+)?$/i
+    /(?:катя[\s,]*)?запомни\s+(?:этот\s+)?разговор\s*(?:(?:под\s+)?названием\s+|под\s+именем\s+|[:\-—]\s*)?(.+)?$/i
   );
 
   if (!match) return null;
@@ -1438,12 +1465,37 @@ function detectSaveConversationCommand(text) {
   };
 }
 
-// ---------- ОТКРЫТИЕ СОХРАНЁННОГО РАЗГОВОРА ----------
+function handleKatyaSaveCommand(text) {
+  const command = detectSaveConversationCommand(text);
+
+  if (!command) return false;
+
+  recordKatyaMessage("user", text);
+
+  if (command.title) {
+    saveKatyaConversation(command.title);
+  } else {
+    katyaWaitingForTitle = true;
+
+    addMessage(
+      "Конечно! Как назовём этот разговор? ❤️",
+      "katya"
+    );
+  }
+
+  return true;
+}
+
+// =====================================================
+// ОТКРЫТИЕ РАЗГОВОРА
+// =====================================================
 
 function openKatyaConversation(id) {
   const conversations = getKatyaSavedConversations();
 
-  const conversation = conversations.find(item => item.id === id);
+  const conversation = conversations.find(
+    item => item.id === id
+  );
 
   if (!conversation) return;
 
@@ -1453,7 +1505,9 @@ function openKatyaConversation(id) {
 
   katyaActiveConversationId = conversation.id;
 
-  katyaConversationMessages = [...conversation.messages];
+  katyaConversationMessages = [
+    ...conversation.messages
+  ];
 
   history = conversation.messages.map(message => ({
     role: message.role === "user" ? "user" : "model",
@@ -1467,11 +1521,6 @@ function openKatyaConversation(id) {
   if (chat) {
     chat.innerHTML = "";
 
-    addMessage(
-      `Продолжаем разговор «${conversation.title}». ❤️`,
-      "katya"
-    );
-
     conversation.messages.forEach(message => {
       addMessage(
         message.text,
@@ -1483,58 +1532,55 @@ function openKatyaConversation(id) {
   closeKatyaHistory();
 
   addMessage(
-    "Я восстановила нашу переписку. Можем продолжить с того места, где остановились. ❤️",
+    `Мы вернулись к разговору «${conversation.title}». ❤️`,
+    "katya"
+  );
+
+  addMessage(
+    "Я восстановила нашу переписку. Можем продолжать!",
     "katya"
   );
 }
 
-// ---------- УДАЛЕНИЕ ----------
+// =====================================================
+// УДАЛЕНИЕ
+// =====================================================
 
 function deleteKatyaConversation(id) {
   const conversations = getKatyaSavedConversations()
     .filter(item => item.id !== id);
 
-  setKatyaSavedConversations(conversations);
+  if (!setKatyaSavedConversations(conversations)) return;
 
   if (katyaActiveConversationId === id) {
     katyaActiveConversationId = null;
+    katyaConversationMessages = [];
+    history = [];
   }
 
   renderKatyaHistory();
 }
 
-// ---------- ИНТЕРФЕЙС ИСТОРИИ ----------
+// =====================================================
+// ИНТЕРФЕЙС ИСТОРИИ
+// =====================================================
 
 function createKatyaHistoryInterface() {
-  if (document.getElementById("katyaHistoryButton")) return;
+  if (document.getElementById("katyaHistoryOverlay")) return;
 
   const style = document.createElement("style");
 
   style.textContent = `
-    #katyaHistoryButton {
-      position: fixed;
-      right: 16px;
-      bottom: 20px;
-      z-index: 9998;
-      padding: 12px 18px;
-      border: 1px solid rgba(255,255,255,.2);
-      border-radius: 24px;
-      background: linear-gradient(135deg,#ff75b5,#e83e91);
-      color: white;
-      font-weight: 600;
-      cursor: pointer;
-      box-shadow: 0 5px 20px rgba(232,62,145,.3);
-    }
-
     #katyaHistoryOverlay {
       display: none;
       position: fixed;
       inset: 0;
-      z-index: 9999;
-      background: rgba(0,0,0,.75);
+      z-index: 99999;
+      background: rgba(0,0,0,.78);
       align-items: center;
       justify-content: center;
       padding: 15px;
+      box-sizing: border-box;
     }
 
     #katyaHistoryPanel {
@@ -1547,6 +1593,16 @@ function createKatyaHistoryInterface() {
       background: #211923;
       color: white;
       border: 1px solid rgba(255,255,255,.12);
+      box-sizing: border-box;
+    }
+
+    #katyaHistoryClose {
+      float: right;
+      border: none;
+      background: none;
+      color: white;
+      font-size: 27px;
+      cursor: pointer;
     }
 
     .katya-history-item {
@@ -1554,7 +1610,7 @@ function createKatyaHistoryInterface() {
       align-items: center;
       gap: 10px;
       margin-top: 12px;
-      padding: 14px;
+      padding: 13px;
       border-radius: 14px;
       background: rgba(255,255,255,.08);
     }
@@ -1568,6 +1624,7 @@ function createKatyaHistoryInterface() {
       color: white;
       cursor: pointer;
       font-size: 15px;
+      overflow-wrap: anywhere;
     }
 
     .katya-history-delete {
@@ -1578,45 +1635,51 @@ function createKatyaHistoryInterface() {
       color: white;
       cursor: pointer;
     }
-
-    #katyaHistoryClose {
-      float: right;
-      border: none;
-      background: none;
-      color: white;
-      font-size: 25px;
-      cursor: pointer;
-    }
   `;
 
   document.head.appendChild(style);
-
-  const button = document.createElement("button");
-  button.id = "katyaHistoryButton";
-  button.textContent = "📚 История разговоров";
-  button.addEventListener("click", openKatyaHistory);
-
-  document.body.appendChild(button);
 
   const overlay = document.createElement("div");
   overlay.id = "katyaHistoryOverlay";
 
   overlay.innerHTML = `
     <div id="katyaHistoryPanel">
-      <button id="katyaHistoryClose">×</button>
-      <h2>История разговоров</h2>
+      <button id="katyaHistoryClose" type="button">×</button>
+      <h2>📚 История разговоров</h2>
       <div id="katyaHistoryList"></div>
     </div>
   `;
 
   overlay.addEventListener("click", event => {
-    if (event.target === overlay) closeKatyaHistory();
+    if (event.target === overlay) {
+      closeKatyaHistory();
+    }
   });
 
   document.body.appendChild(overlay);
 
   document.getElementById("katyaHistoryClose")
     .addEventListener("click", closeKatyaHistory);
+
+  // Подключаем УЖЕ СУЩЕСТВУЮЩУЮ кнопку в index.html.
+  const historyButton = document.querySelector(
+    '.drawer-item[data-drawer-action="history"]'
+  );
+
+  if (historyButton && !historyButton.dataset.katyaHistoryBound) {
+    historyButton.dataset.katyaHistoryBound = "true";
+
+    historyButton.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (typeof closeKatyaMenu === "function") {
+        closeKatyaMenu();
+      }
+
+      openKatyaHistory();
+    }, true);
+  }
 
   renderKatyaHistory();
 }
@@ -1626,13 +1689,17 @@ function openKatyaHistory() {
 
   const overlay = document.getElementById("katyaHistoryOverlay");
 
-  if (overlay) overlay.style.display = "flex";
+  if (overlay) {
+    overlay.style.display = "flex";
+  }
 }
 
 function closeKatyaHistory() {
   const overlay = document.getElementById("katyaHistoryOverlay");
 
-  if (overlay) overlay.style.display = "none";
+  if (overlay) {
+    overlay.style.display = "none";
+  }
 }
 
 function renderKatyaHistory() {
@@ -1654,21 +1721,26 @@ function renderKatyaHistory() {
     item.className = "katya-history-item";
 
     const open = document.createElement("button");
+    open.type = "button";
     open.className = "katya-history-open";
 
-    const date = new Date(conversation.updatedAt)
-      .toLocaleString("ru-RU");
+    const count = Array.isArray(conversation.messages)
+      ? conversation.messages.length
+      : 0;
 
     open.textContent =
-      `💬 ${conversation.title} (${conversation.messages.length} сообщений)`;
+      `💬 ${conversation.title} (${count} сообщений)`;
 
-    open.title = date;
+    open.title = new Date(
+      conversation.updatedAt
+    ).toLocaleString("ru-RU");
 
     open.addEventListener("click", () => {
       openKatyaConversation(conversation.id);
     });
 
     const remove = document.createElement("button");
+    remove.type = "button";
     remove.className = "katya-history-delete";
     remove.textContent = "Удалить";
 
@@ -1685,9 +1757,9 @@ function renderKatyaHistory() {
   });
 }
 
-// ---------- ПЕРЕХВАТ ТЕКСТОВЫХ СООБЩЕНИЙ ----------
-
-const originalSendTextMessage = sendTextMessage;
+// =====================================================
+// ТЕКСТОВЫЙ ЧАТ — СОХРАНЕНИЕ СООБЩЕНИЙ
+// =====================================================
 
 sendTextMessage = async function() {
   if (!messageInput) return;
@@ -1696,30 +1768,77 @@ sendTextMessage = async function() {
 
   if (!message) return;
 
-  const saveCommand = detectSaveConversationCommand(message);
+  messageInput.value = "";
 
-  if (saveCommand) {
-    messageInput.value = "";
+  // Если Катя ожидает название разговора.
+  if (katyaWaitingForTitle) {
+    katyaWaitingForTitle = false;
 
-    if (saveCommand.title) {
-      recordKatyaMessage("user", message);
-      saveKatyaConversation(saveCommand.title);
-    } else {
-      addMessage(
-        "Как назовём этот разговор? Например: «Мои планы». ❤️",
-        "katya"
-      );
-    }
+    saveKatyaConversation(message);
 
     return;
   }
 
-  await originalSendTextMessage();
+  // Команда сохранения.
+  if (handleKatyaSaveCommand(message)) {
+    addMessage(message, "user");
+    return;
+  }
+
+  addMessage(message, "user");
+
+  recordKatyaMessage("user", message);
+
+  const appKey = detectAppCommand(message);
+
+  if (appKey) {
+    showAppLaunchButton(appKey);
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        message,
+        history
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Ошибка сервера");
+    }
+
+    const reply = data.reply || "Не получилось получить ответ.";
+
+    addMessage(reply, "katya");
+
+    recordKatyaMessage("model", reply);
+
+    history.push(
+      { role: "user", text: message },
+      { role: "model", text: reply }
+    );
+
+    if (history.length > 40) {
+      history = history.slice(-40);
+    }
+
+  } catch (error) {
+    console.error("CHAT ERROR:", error);
+
+    addMessage("Ошибка: " + error.message, "katya");
+  }
 };
 
-// ---------- ПЕРЕХВАТ ГОЛОСОВЫХ СООБЩЕНИЙ ----------
-
-const originalFinishInputTranscription = finishInputTranscription;
+// =====================================================
+// ГОЛОСОВЫЕ СООБЩЕНИЯ GEMINI LIVE
+// =====================================================
 
 finishInputTranscription = function() {
   if (inputTranscriptionTimer) {
@@ -1738,19 +1857,19 @@ finishInputTranscription = function() {
 
   if (!recognizedText) return;
 
-  const saveCommand = detectSaveConversationCommand(recognizedText);
+  console.log("Распознано:", recognizedText);
 
-  if (saveCommand) {
-    if (saveCommand.title) {
-      recordKatyaMessage("user", recognizedText);
-      saveKatyaConversation(saveCommand.title);
-    } else {
-      addMessage(
-        "Как назовём этот разговор? ❤️",
-        "katya"
-      );
-    }
+  // Катя ждёт название разговора.
+  if (katyaWaitingForTitle) {
+    katyaWaitingForTitle = false;
 
+    saveKatyaConversation(recognizedText);
+
+    return;
+  }
+
+  // Голосовая команда сохранения.
+  if (handleKatyaSaveCommand(recognizedText)) {
     return;
   }
 
@@ -1758,37 +1877,40 @@ finishInputTranscription = function() {
 
   const appKey = detectAppCommand(recognizedText);
 
-  if (appKey) showAppLaunchButton(appKey);
+  if (appKey) {
+    showAppLaunchButton(appKey);
+  }
 };
 
-// ---------- СОХРАНЕНИЕ ОТВЕТОВ GEMINI LIVE ----------
-
-const originalFinishOutputText = finishOutputText;
+// =====================================================
+// СОХРАНЕНИЕ ОТВЕТОВ КАТИ
+// =====================================================
 
 finishOutputText = function() {
   const text = outputTextBuffer.trim();
 
   if (text) {
     recordKatyaMessage("model", text);
+    addMessage(text, "katya");
   }
 
-  originalFinishOutputText();
+  outputTextBuffer = "";
 };
 
-// ---------- СОХРАНЕНИЕ ТЕКСТОВЫХ СООБЩЕНИЙ ----------
+// =====================================================
+// ЗАПУСК
+// =====================================================
 
-const originalAddMessage = addMessage;
-
-addMessage = function(text, type) {
-  originalAddMessage(text, type);
-};
-
-// ---------- ЗАПУСК ----------
-
-window.addEventListener("load", () => {
+function initializeKatyaHistory() {
   createKatyaHistoryInterface();
-});
+}
 
-document.addEventListener("DOMContentLoaded", () => {
-  createKatyaHistoryInterface();
-});
+if (document.readyState === "loading") {
+  document.addEventListener(
+    "DOMContentLoaded",
+    initializeKatyaHistory,
+    { once: true }
+  );
+} else {
+  initializeKatyaHistory();
+}
