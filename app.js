@@ -119,7 +119,7 @@ function setVoiceButton(active) {
   );
 }
 
-// Нормализация текста для распознавания команд
+// Нормализация текста
 function normalizeCommandText(text) {
   return String(text || "")
     .toLowerCase()
@@ -129,7 +129,7 @@ function normalizeCommandText(text) {
     .trim();
 }
 
-// Определяем команду запуска приложения
+// Определяем команду запуска
 function detectAppCommand(text) {
   const normalized = normalizeCommandText(text);
 
@@ -160,13 +160,29 @@ function detectAppCommand(text) {
   return null;
 }
 
-// Показываем кнопку запуска приложения в чате
+// Автоматический запуск приложения Android
+function launchAndroidApp(appKey) {
+  const app = katyaApps[appKey];
+
+  if (!app) return false;
+
+  console.log("Катя запускает приложение:", app.name);
+
+  try {
+    window.location.href = app.url;
+    return true;
+  } catch (error) {
+    console.error("Ошибка запуска приложения:", error);
+    return false;
+  }
+}
+
+// Запасная кнопка на случай блокировки браузером
 function showAppLaunchButton(appKey) {
   const app = katyaApps[appKey];
 
   if (!app || !chat) return;
 
-  // Не показываем одинаковую кнопку несколько раз подряд
   const now = Date.now();
 
   if (
@@ -183,7 +199,8 @@ function showAppLaunchButton(appKey) {
   container.className = "message katya";
 
   const text = document.createElement("div");
-  text.textContent = `Хорошо ❤️ Открываю ${app.name}. Нажми кнопку ниже:`;
+  text.textContent =
+    `Пытаюсь автоматически открыть ${app.name}. ❤️`;
 
   const button = document.createElement("button");
   button.type = "button";
@@ -201,7 +218,7 @@ function showAppLaunchButton(appKey) {
   button.style.cursor = "pointer";
 
   button.addEventListener("click", () => {
-    window.location.href = app.url;
+    launchAndroidApp(appKey);
   });
 
   container.appendChild(text);
@@ -209,10 +226,12 @@ function showAppLaunchButton(appKey) {
 
   chat.appendChild(container);
   chat.scrollTop = chat.scrollHeight;
+
+  // Сразу пытаемся открыть приложение
+  launchAndroidApp(appKey);
 }
 
-// Обработка текста голосовой транскрипции.
-// Некоторые фрагменты могут приходить частями.
+// Сбор распознанной речи
 function collectInputTranscription(text) {
   if (!text) return;
 
@@ -225,13 +244,11 @@ function collectInputTranscription(text) {
     return;
   }
 
-  // Если Gemini прислал накопленный текст целиком
   if (incoming.startsWith(inputTextBuffer)) {
     inputTextBuffer = incoming;
     return;
   }
 
-  // Если предыдущий текст уже содержится во входящем
   if (inputTextBuffer.startsWith(incoming)) {
     return;
   }
@@ -239,7 +256,7 @@ function collectInputTranscription(text) {
   inputTextBuffer += " " + incoming;
 }
 
-// Проверяем голосовую команду после завершения фразы
+// Завершение распознавания команды
 function finishInputTranscription() {
   const recognizedText = inputTextBuffer.trim();
 
@@ -295,7 +312,7 @@ function toBase64(int16Array) {
   return btoa(binary);
 }
 
-// Полностью останавливаем старое воспроизведение
+// Остановка воспроизведения
 function stopAllAudio() {
   for (const audioSource of audioSources) {
     try {
@@ -313,7 +330,7 @@ function stopAllAudio() {
   assistantTurnActive = false;
 }
 
-// Обработка входящего аудио Gemini
+// Воспроизведение голоса Gemini
 function playAudio(base64) {
   if (!audioContext || !voiceActive) return;
 
@@ -389,6 +406,7 @@ function finishOutputText() {
   outputTextBuffer = "";
 }
 
+// Обработка сообщений Gemini
 function processGeminiMessage(message) {
   if (!message) return;
 
@@ -425,7 +443,6 @@ function processGeminiMessage(message) {
 
   if (!content) return;
 
-  // Gemini прервал предыдущий ответ
   if (content.interrupted) {
     stopAllAudio();
     outputTextBuffer = "";
@@ -433,13 +450,13 @@ function processGeminiMessage(message) {
     return;
   }
 
-  // Получаем распознанную речь пользователя
+  // Распознавание речи пользователя
   if (content.inputTranscription?.text) {
     console.log("Ты сказал:", content.inputTranscription.text);
     collectInputTranscription(content.inputTranscription.text);
   }
 
-  // Получаем текст ответа только из одного источника
+  // Текст ответа Кати
   if (content.outputTranscription?.text) {
     outputTextBuffer += content.outputTranscription.text;
   } else {
@@ -452,7 +469,7 @@ function processGeminiMessage(message) {
     }
   }
 
-  // Получаем голосовые фрагменты
+  // Голосовые фрагменты
   const parts = content.modelTurn?.parts || [];
 
   for (const part of parts) {
@@ -461,7 +478,7 @@ function processGeminiMessage(message) {
     }
   }
 
-  // Завершение пользовательской фразы и ответа Gemini
+  // Завершение ответа
   if (content.turnComplete) {
     finishInputTranscription();
     finishOutputText();
@@ -498,7 +515,6 @@ async function startMicrophone() {
     1
   );
 
-  // Не воспроизводим звук самого микрофона через динамики
   muteGain = audioContext.createGain();
   muteGain.gain.value = 0;
 
@@ -700,7 +716,7 @@ async function sendTextMessage() {
 
   addMessage(message, "user");
 
-  // Проверяем, не является ли текст командой запуска приложения
+  // Команда запуска приложения из текстового чата
   const appKey = detectAppCommand(message);
 
   if (appKey) {
