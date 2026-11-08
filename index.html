@@ -27,7 +27,6 @@
       </button>
     </header>
 
-    <!-- Боковое меню -->
     <div class="menu-overlay" id="menuOverlay"></div>
 
     <aside class="side-menu" id="sideMenu" aria-hidden="true">
@@ -46,7 +45,6 @@
       </div>
 
       <div class="drawer-divider"></div>
-
       <div class="drawer-label">ГЛАВНОЕ</div>
 
       <button class="drawer-item active" data-drawer-action="home">
@@ -65,7 +63,6 @@
       </button>
 
       <div class="drawer-divider"></div>
-
       <div class="drawer-label">ПЕРСОНАЛИЗАЦИЯ</div>
 
       <button class="drawer-item" data-drawer-action="appearance">
@@ -86,7 +83,7 @@
 
     </aside>
 
-    <main class="voice-main">
+    <main class="voice-main" id="mainScreen">
 
       <div class="orb-container">
         <div class="orb" id="katyaOrb"></div>
@@ -100,7 +97,89 @@
 
     </main>
 
-    <div class="bottom-controls">
+    <!-- Раздел внешнего вида -->
+    <section class="appearance-screen" id="appearanceScreen" hidden>
+
+      <div class="appearance-header">
+        <button class="round-button" id="appearanceBack" aria-label="Назад">←</button>
+
+        <div>
+          <strong>Внешний вид</strong>
+          <span>Выбери оформление чата</span>
+        </div>
+      </div>
+
+      <div class="appearance-content">
+
+        <div class="appearance-heading">
+          ОФОРМЛЕНИЕ ЧАТА
+        </div>
+
+        <div class="theme-list">
+
+          <button class="theme-option" data-theme-choice="light">
+            <span class="theme-preview preview-light">
+              <span class="preview-message preview-left"></span>
+              <span class="preview-message preview-right"></span>
+              <span class="preview-message preview-left small"></span>
+            </span>
+            <span class="theme-info">
+              <strong>Светлая</strong>
+              <small>Чистый белый фон</small>
+            </span>
+            <span class="theme-check">✓</span>
+          </button>
+
+          <button class="theme-option" data-theme-choice="gray">
+            <span class="theme-preview preview-gray">
+              <span class="preview-message preview-left"></span>
+              <span class="preview-message preview-right"></span>
+              <span class="preview-message preview-left small"></span>
+            </span>
+            <span class="theme-info">
+              <strong>Серая</strong>
+              <small>Спокойные серые оттенки</small>
+            </span>
+            <span class="theme-check">✓</span>
+          </button>
+
+          <button class="theme-option" data-theme-choice="pink">
+            <span class="theme-preview preview-pink">
+              <span class="preview-message preview-left"></span>
+              <span class="preview-message preview-right"></span>
+              <span class="preview-message preview-left small"></span>
+            </span>
+            <span class="theme-info">
+              <strong>Pink Glass</strong>
+              <small>Фирменный розовый стиль Кати</small>
+            </span>
+            <span class="theme-check">✓</span>
+          </button>
+
+          <button class="theme-option" data-theme-choice="dark">
+            <span class="theme-preview preview-dark">
+              <span class="preview-message preview-left"></span>
+              <span class="preview-message preview-right"></span>
+              <span class="preview-message preview-left small"></span>
+            </span>
+            <span class="theme-info">
+              <strong>Тёмная</strong>
+              <small>Тёмный фон для вечера</small>
+            </span>
+            <span class="theme-check">✓</span>
+          </button>
+
+        </div>
+
+        <div class="appearance-note">
+          ❤️ Выбранное оформление сохраняется автоматически.
+        </div>
+
+      </div>
+
+    </section>
+
+    <div class="bottom-controls" id="bottomControls">
 
       <div class="message-input">
         <button id="addButton" class="add-button" aria-label="Дополнительно">+</button>
@@ -150,6 +229,12 @@
     const menuOverlay = document.getElementById('menuOverlay');
     const drawerClose = document.getElementById('drawerClose');
 
+    const appearanceScreen = document.getElementById('appearanceScreen');
+    const mainScreen = document.getElementById('mainScreen');
+    const bottomControls = document.getElementById('bottomControls');
+
+    const appearanceBack = document.getElementById('appearanceBack');
+
     function openKatyaMenu() {
       sideMenu.classList.add('menu-open');
       menuOverlay.classList.add('overlay-visible');
@@ -164,12 +249,71 @@
       menuButton.setAttribute('aria-expanded', 'false');
     }
 
+    function openAppearance() {
+      closeKatyaMenu();
+
+      mainScreen.hidden = true;
+      bottomControls.hidden = true;
+      appearanceScreen.hidden = false;
+
+      updateThemeSelection();
+    }
+
+    function closeAppearance() {
+      appearanceScreen.hidden = true;
+      mainScreen.hidden = false;
+      bottomControls.hidden = false;
+    }
+
+    function applyTheme(theme) {
+      const allowedThemes = ['light', 'gray', 'pink', 'dark'];
+
+      if (!allowedThemes.includes(theme)) {
+        theme = 'pink';
+      }
+
+      document.body.dataset.theme = theme;
+
+      try {
+        localStorage.setItem('katya-theme', theme);
+      } catch (error) {
+        console.warn('Не удалось сохранить тему:', error);
+      }
+
+      updateThemeSelection();
+    }
+
+    function updateThemeSelection() {
+      const currentTheme = document.body.dataset.theme || 'pink';
+
+      document.querySelectorAll('[data-theme-choice]').forEach(function(button) {
+        const selected = button.dataset.themeChoice === currentTheme;
+
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
+    }
+
+    let savedTheme = 'pink';
+
+    try {
+      savedTheme = localStorage.getItem('katya-theme') || 'pink';
+    } catch (error) {
+      console.warn('Не удалось прочитать тему:', error);
+    }
+
+    applyTheme(savedTheme);
+
     menuButton.addEventListener('click', openKatyaMenu);
     drawerClose.addEventListener('click', closeKatyaMenu);
     menuOverlay.addEventListener('click', closeKatyaMenu);
 
-    document.addEventListener('keydown', function(event) {
-      if (event.key === 'Escape') closeKatyaMenu();
+    appearanceBack.addEventListener('click', closeAppearance);
+
+    document.querySelectorAll('[data-theme-choice]').forEach(function(button) {
+      button.addEventListener('click', function() {
+        applyTheme(button.dataset.themeChoice);
+      });
     });
 
     document.querySelectorAll('.drawer-item').forEach(function(item) {
@@ -186,7 +330,8 @@
         }
 
         if (action === 'appearance') {
-          document.body.classList.toggle('pink-theme');
+          openAppearance();
+          return;
         }
 
         if (action === 'settings') {
@@ -195,6 +340,16 @@
 
         closeKatyaMenu();
       });
+    });
+
+    document.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape') {
+        closeKatyaMenu();
+
+        if (!appearanceScreen.hidden) {
+          closeAppearance();
+        }
+      }
     });
   </script>
 
