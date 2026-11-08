@@ -700,3 +700,429 @@ body.pink-theme .side-menu {
     min-height: 50px;
   }
 }
+
+
+
+
+
+
+/* =========================================
+   KATYA AI — 4 THEMES
+========================================= */
+
+[hidden] {
+  display: none !important;
+}
+
+/* Цветовые переменные */
+
+body[data-theme="pink"] {
+  --page-bg: #fff0f7;
+  --panel-bg: #ffedf6;
+  --top-bg: rgba(255,235,246,.88);
+  --bottom-bg: rgba(255,225,241,.95);
+  --chat-bg: rgba(255,248,252,.92);
+  --chat-border: rgba(240,190,220,.65);
+  --chat-text: #563c50;
+  --text-color: #563c50;
+  --muted-color: #b18da5;
+  --input-bg: rgba(255,248,252,.9);
+  --input-border: rgba(239,190,220,.65);
+  --accent: #c65b9a;
+  --user-message: linear-gradient(135deg,#ee91c7,#c38ee9);
+  --appearance-bg: #fff0f7;
+}
+
+body[data-theme="light"] {
+  --page-bg: #ffffff;
+  --panel-bg: #ffffff;
+  --top-bg: rgba(255,255,255,.94);
+  --bottom-bg: rgba(255,255,255,.97);
+  --chat-bg: #f5f5f5;
+  --chat-border: #e8e8e8;
+  --chat-text: #292929;
+  --text-color: #292929;
+  --muted-color: #888888;
+  --input-bg: #f5f5f5;
+  --input-border: #e5e5e5;
+  --accent: #777777;
+  --user-message: linear-gradient(135deg,#777777,#aaaaaa);
+  --appearance-bg: #ffffff;
+}
+
+body[data-theme="gray"] {
+  --page-bg: #e8e8eb;
+  --panel-bg: #eeeeef;
+  --top-bg: rgba(235,235,238,.96);
+  --bottom-bg: rgba(220,220,225,.97);
+  --chat-bg: #dedee2;
+  --chat-border: #d0d0d5;
+  --chat-text: #38383e;
+  --text-color: #38383e;
+  --muted-color: #777780;
+  --input-bg: #dedee2;
+  --input-border: #c9c9ce;
+  --accent: #777783;
+  --user-message: linear-gradient(135deg,#777783,#9999a5);
+  --appearance-bg: #e8e8eb;
+}
+
+body[data-theme="dark"] {
+  --page-bg: #17171b;
+  --panel-bg: #202025;
+  --top-bg: rgba(30,30,36,.96);
+  --bottom-bg: rgba(23,23,28,.98);
+  --chat-bg: #292930;
+  --chat-border: #41414b;
+  --chat-text: #eeeeF3;
+  --text-color: #f1f1f5;
+  --muted-color: #aaaab5;
+  --input-bg: #292930;
+  --input-border: #44444f;
+  --accent: #d18bb9;
+  --user-message: linear-gradient(135deg,#85547f,#68558e);
+  --appearance-bg: #17171b;
+}
+
+/* Основной фон */
+
+body,
+.app {
+  background: var(--page-bg);
+  color: var(--text-color);
+  transition: background .3s ease, color .3s ease;
+}
+
+/* Верхняя панель */
+
+.top-bar {
+  background: var(--top-bg);
+  border-color: var(--chat-border);
+}
+
+.top-title strong {
+  color: var(--text-color);
+}
+
+.top-title span {
+  color: var(--muted-color);
+}
+
+.round-button {
+  background: var(--chat-bg);
+  color: var(--accent);
+  border-color: var(--chat-border);
+}
+
+/* Центральная область */
+
+.voice-main {
+  background: var(--page-bg);
+}
+
+body[data-theme="dark"] .voice-main::before {
+  background: radial-gradient(circle,rgba(130,90,150,.17),transparent 72%);
+}
+
+/* Сообщения */
+
+.chat-messages .katya {
+  background: var(--chat-bg);
+  border: 1px solid var(--chat-border);
+  color: var(--chat-text);
+  box-shadow: 0 4px 15px rgba(0,0,0,.04);
+}
+
+.chat-messages .user {
+  background: var(--user-message);
+  color: #ffffff;
+}
+
+/* Нижняя панель */
+
+.bottom-controls {
+  background: linear-gradient(
+    transparent,
+    var(--bottom-bg) 35%
+  );
+}
+
+.message-input {
+  background: var(--input-bg);
+  border-color: var(--input-border);
+}
+
+.message-input input {
+  color: var(--text-color);
+}
+
+.message-input input::placeholder {
+  color: var(--muted-color);
+}
+
+.add-button,
+.send-button {
+  color: var(--accent);
+}
+
+/* Тёмные кнопки */
+
+body[data-theme="dark"] .mic-button,
+body[data-theme="dark"] .exit-button {
+  background: linear-gradient(145deg,#34343e,#25252d);
+  border-color: #50505d;
+  color: #f3b6dc;
+  box-shadow: 0 5px 18px rgba(0,0,0,.35);
+}
+
+body[data-theme="dark"] .mic-svg {
+  stroke: #f3b6dc;
+}
+
+/* =========================================
+   APPEARANCE SCREEN
+========================================= */
+
+.appearance-screen {
+  position: absolute;
+  z-index: 4;
+  top: 70px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-y: auto;
+  background: var(--appearance-bg);
+  color: var(--text-color);
+  animation: appearanceEnter .3s ease;
+}
+
+@keyframes appearanceEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.appearance-header {
+  min-height: 75px;
+  padding: 12px 17px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  background: var(--top-bg);
+  border-bottom: 1px solid var(--chat-border);
+}
+
+.appearance-header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.appearance-header strong {
+  font-size: 17px;
+  color: var(--text-color);
+}
+
+.appearance-header span {
+  font-size: 12px;
+  color: var(--muted-color);
+}
+
+.appearance-content {
+  padding: 23px 18px;
+}
+
+.appearance-heading {
+  margin-bottom: 17px;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 1.5px;
+  color: var(--muted-color);
+}
+
+.theme-list {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.theme-option {
+  width: 100%;
+  min-height: 105px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  text-align: left;
+  border: 1px solid var(--chat-border);
+  border-radius: 19px;
+  background: var(--chat-bg);
+  color: var(--text-color);
+  transition: border .2s, transform .2s, box-shadow .2s;
+}
+
+.theme-option.selected {
+  border: 2px solid var(--accent);
+  box-shadow: 0 5px 18px rgba(150,100,140,.13);
+}
+
+.theme-preview {
+  width: 105px;
+  height: 76px;
+  flex-shrink: 0;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.preview-light {
+  background: #ffffff;
+}
+
+.preview-gray {
+  background: #dedee2;
+}
+
+.preview-pink {
+  background: linear-gradient(135deg,#fff0f7,#f8d8eb);
+}
+
+.preview-dark {
+  background: #202027;
+}
+
+.preview-message {
+  width: 65%;
+  height: 10px;
+  display: block;
+  border-radius: 8px;
+  background: #d9d9df;
+}
+
+.preview-message.preview-right {
+  align-self: flex-end;
+  background: #a8a8b4;
+}
+
+.preview-message.small {
+  width: 45%;
+}
+
+.preview-pink .preview-message {
+  background: #f1b6d7;
+}
+
+.preview-pink .preview-right {
+  background: #d18ac1;
+}
+
+.preview-dark .preview-message {
+  background: #494954;
+}
+
+.preview-dark .preview-right {
+  background: #9b6a96;
+}
+
+.theme-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.theme-info strong {
+  font-size: 14px;
+  color: var(--text-color);
+}
+
+.theme-info small {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted-color);
+}
+
+.theme-check {
+  width: 23px;
+  height: 23px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  font-size: 13px;
+  opacity: 0;
+  transform: scale(.7);
+  transition: .2s;
+}
+
+.theme-option.selected .theme-check {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.appearance-note {
+  margin-top: 25px;
+  padding: 15px;
+  border-radius: 15px;
+  background: var(--chat-bg);
+  color: var(--muted-color);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Тёмная тема: меню */
+
+body[data-theme="dark"] .side-menu {
+  background: linear-gradient(145deg,#282830,#1b1b21);
+  border-color: #41414b;
+}
+
+body[data-theme="dark"] .drawer-title strong,
+body[data-theme="dark"] .drawer-item {
+  color: #e7c2dc;
+}
+
+body[data-theme="dark"] .drawer-title span,
+body[data-theme="dark"] .drawer-label,
+body[data-theme="dark"] .drawer-footer-version {
+  color: #aaa0ad;
+}
+
+body[data-theme="dark"] .drawer-item {
+  background: rgba(255,255,255,.05);
+}
+
+body[data-theme="dark"] .drawer-item.active {
+  background: rgba(220,140,190,.16);
+  border-color: #77516c;
+}
+
+body[data-theme="dark"] .drawer-icon {
+  background: rgba(220,140,190,.13);
+  color: #e3a6cf;
+}
+
+/* Плавное переключение */
+
+.chat-messages,
+.message,
+.message-input,
+.top-bar,
+.bottom-controls,
+.appearance-screen {
+  transition: background .3s ease, color .3s ease, border-color .3s ease;
+}
+
