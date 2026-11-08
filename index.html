@@ -63,6 +63,44 @@
       </button>
 
       <div class="drawer-divider"></div>
+      <div class="drawer-label">УМНЫЕ УСТРОЙСТВА</div>
+
+      <button
+        class="drawer-item"
+        id="smartDevicesToggle"
+        aria-expanded="false"
+        aria-controls="smartDeviceOptions"
+      >
+        <span class="drawer-icon">▣</span>
+        <span>Приложения</span>
+        <span class="appearance-arrow" id="smartDevicesArrow">⌄</span>
+      </button>
+
+      <div class="theme-options" id="smartDeviceOptions" hidden>
+
+        <button class="theme-choice" data-app-launch="youtube">
+          <span class="drawer-icon">▶</span>
+          <span>YouTube</span>
+        </button>
+
+        <button class="theme-choice" data-app-launch="telegram">
+          <span class="drawer-icon">✈</span>
+          <span>Telegram</span>
+        </button>
+
+        <button class="theme-choice" data-app-launch="tiktok">
+          <span class="drawer-icon">♪</span>
+          <span>TikTok</span>
+        </button>
+
+        <button class="theme-choice" data-app-launch="chrome">
+          <span class="drawer-icon">◉</span>
+          <span>Chrome</span>
+        </button>
+
+      </div>
+
+      <div class="drawer-divider"></div>
       <div class="drawer-label">ПЕРСОНАЛИЗАЦИЯ</div>
 
       <button
@@ -185,6 +223,10 @@
     const themeOptions = document.getElementById('themeOptions');
     const appearanceArrow = document.getElementById('appearanceArrow');
 
+    const smartDevicesToggle = document.getElementById('smartDevicesToggle');
+    const smartDeviceOptions = document.getElementById('smartDeviceOptions');
+    const smartDevicesArrow = document.getElementById('smartDevicesArrow');
+
     function openKatyaMenu() {
       sideMenu.classList.add('menu-open');
       menuOverlay.classList.add('overlay-visible');
@@ -205,6 +247,14 @@
       themeOptions.hidden = isOpen;
       appearanceToggle.setAttribute('aria-expanded', String(!isOpen));
       appearanceArrow.textContent = isOpen ? '⌄' : '⌃';
+    }
+
+    function toggleSmartDevices() {
+      const isOpen = !smartDeviceOptions.hidden;
+
+      smartDeviceOptions.hidden = isOpen;
+      smartDevicesToggle.setAttribute('aria-expanded', String(!isOpen));
+      smartDevicesArrow.textContent = isOpen ? '⌄' : '⌃';
     }
 
     function applyTheme(theme) {
@@ -251,10 +301,25 @@
     menuOverlay.addEventListener('click', closeKatyaMenu);
 
     appearanceToggle.addEventListener('click', toggleAppearance);
+    smartDevicesToggle.addEventListener('click', toggleSmartDevices);
 
     document.querySelectorAll('[data-theme-choice]').forEach(function(button) {
       button.addEventListener('click', function() {
         applyTheme(button.dataset.themeChoice);
+      });
+    });
+
+    document.querySelectorAll('[data-app-launch]').forEach(function(button) {
+      button.addEventListener('click', function() {
+        const appKey = button.dataset.appLaunch;
+
+        if (typeof showAppLaunchButton === 'function') {
+          showAppLaunchButton(appKey);
+        } else {
+          console.error('Функция запуска приложений ещё не добавлена в app.js');
+        }
+
+        closeKatyaMenu();
       });
     });
 
