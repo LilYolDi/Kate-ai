@@ -21,6 +21,8 @@ let audioSources = new Set();
 let history = [];
 let outputTextBuffer = "";
 let inputTextBuffer = "";
+let latestInterimTranscription = "";
+let inputTranscriptionTimer = null;
 let sessionId = 0;
 let lastLaunchedApp = "";
 let lastLaunchTime = 0;
@@ -84,7 +86,9 @@ function addMessage(text, type) {
   chat.scrollTop = chat.scrollHeight;
 }
 function setOrb(active) {
-  if (orb) orb.classList.toggle("active", active);
+  if (orb) {
+    orb.classList.toggle("active", active);
+  }
 }
 function setVoiceButton(active) {
   if (!voiceButton) return;
@@ -171,7 +175,8 @@ function showAppLaunchButton(appKey) {
   button.style.padding = "11px 18px";
   button.style.border = "none";
   button.style.borderRadius = "20px";
-  button.style.background = "linear-gradient(135deg, #ff75b5, #e83e91)";
+  button.style.background =
+    "linear-gradient(135deg, #ff75b5, #e83e91)";
   button.style.color = "#ffffff";
   button.style.fontWeight = "600";
   button.style.cursor = "pointer";
@@ -184,34 +189,90 @@ function showAppLaunchButton(appKey) {
   chat.scrollTop = chat.scrollHeight;
   launchAndroidApp(appKey);
 }
+// Объединение частей распознанной фразы
+function mergeTranscription(current, incoming) {
+  current = String(current || "").trim();
+  incoming = String(incoming || "").trim();
+  if (!incoming) return current;
+  if (!current) return incoming;
+  // Новая версия содержит всю предыдущую фразу
+  if (incoming.startsWith(current)) {
+    return incoming;
+  }
+  // Предыдущая версия уже содержит новую
+  if (current.startsWith(incoming)) {
+    return current;
+  }
+  // Ищем совпадающую часть на границе двух фрагментов
+  const maxOverlap = Math.min(
+    current.length,
+    incoming.length
+  );
+  for (let i = maxOverlap; i > 0; i--) {
+    if (
+      current.slice(-i).toLowerCase() ===
+      incoming.slice(0, i).toLowerCase()
+    ) {
+      return current + incoming.slice(i);
+    }
+  }
+  return current + " " + incoming;
+}
 // Сбор распознанной речи
-function collectInputTranscription(text) {
+function collectInputTranscription(text, isFinal = false) {
   if (!text) return;
   const incoming = String(text).trim();
   if (!incoming) return;
-  if (!inputTextBuffer) {
-    inputTextBuffer = incoming;
-    return;
+  if (isFinal) {
+    inputTextBuffer = mergeTranscription(
+      inputTextBuffer,
+      incoming
+    );
+    // Финальный текст заменяет промежуточный
+    latestInterimTranscription = "";
+  } else {
+    latestInterimTranscription = incoming;
   }
-  if (incoming.startsWith(inputTextBuffer)) {
-    inputTextBuffer = incoming;
-    return;
+  scheduleInputTranscriptionFinish(1400);
+}
+// Отложенное завершение распознавания
+function scheduleInputTranscriptionFinish(delay = 1400) {
+  if (inputTranscriptionTimer) {
+    clearTimeout(inputTranscriptionTimer);
   }
-  if (inputTextBuffer.startsWith(incoming)) {
-    return;
-  }
-  inputTextBuffer += " " + incoming;
+  inputTranscriptionTimer = setTimeout(() => {
+    inputTranscriptionTimer = null;
+    finishInputTranscription();
+  }, delay);
 }
 // Завершение распознавания команды
 function finishInputTranscription() {
-  const recognizedText = inputTextBuffer.trim();
+  if (inputTranscriptionTimer) {
+    clearTimeout(inputTranscriptionTimer);
+    inputTranscriptionTimer = null;
+  }
+  let recognizedText = inputTextBuffer.trim();
+  // Если финального текста нет, используем промежуточный
+  if (!recognizedText) {
+    recognizedText = latestInterimTranscription.trim();
+  }
   inputTextBuffer = "";
+  latestInterimTranscription = "";
   if (!recognizedText) return;
   console.log("Распознано:", recognizedText);
   const appKey = detectAppCommand(recognizedText);
   if (appKey) {
     showAppLaunchButton(appKey);
   }
+}
+// Очистка распознавания
+function clearInputTranscription() {
+  if (inputTranscriptionTimer) {
+    clearTimeout(inputTranscriptionTimer);
+    inputTranscriptionTimer = null;
+  }
+  inputTextBuffer = "";
+  latestInterimTranscription = "";
 }
 function convertTo16kHz(input, inputRate) {
   const outputRate = 16000;
@@ -347,13 +408,30 @@ function processGeminiMessage(message) {
   if (content.interrupted) {
     stopAllAudio();
     outputTextBuffer = "";
-    inputTextBuffer = "";
+    clearInputTranscription();
     return;
   }
-  // Распознавание речи пользователя
+  // Промежуточное распознавание речи
+  if (content.interimInputTranscription?.text) {
+    console.log(
+      "Промежуточное распознавание:",
+      content.interimInputTranscription.text
+    );
+    collectInputTranscription(
+      content.interimInputTranscription.text,
+      false
+    );
+  }
+  // Финальное распознавание речи
   if (content.inputTranscription?.text) {
-    console.log("Ты сказал:", content.inputTranscription.text);
-    collectInputTranscription(content.inputTranscription.text);
+    console.log(
+      "Ты сказал:",
+      content.inputTranscription.text
+    );
+    collectInputTranscription(
+      content.inputTranscription.text,
+      true
+    );
   }
   // Текст ответа Кати
   if (content.outputTranscription?.text) {
@@ -375,7 +453,7 @@ function processGeminiMessage(message) {
   }
   // Завершение ответа
   if (content.turnComplete) {
-    finishInputTranscription();
+    scheduleInputTranscriptionFinish(1200);
     finishOutputText();
     assistantTurnActive = false;
     if (audioSources.size === 0) {
@@ -394,7 +472,9 @@ async function startMicrophone() {
   });
   audioContext = new (
     window.AudioContext || window.webkitAudioContext
-  )();
+  )({
+    latencyHint: "interactive"
+  });
   await audioContext.resume();
   // Создаём отдельный медиапоток для голоса Кати
   audioOutputDestination =
@@ -426,7 +506,7 @@ async function startMicrophone() {
   }
   source = audioContext.createMediaStreamSource(microphone);
   processor = audioContext.createScriptProcessor(
-    4096,
+    2048,
     1,
     1
   );
@@ -448,10 +528,14 @@ async function startMicrophone() {
       audioContext.sampleRate
     );
     if (!pcm.length) return;
-    socket.send(JSON.stringify({
-      type: "audio",
-      data: toBase64(pcm)
-    }));
+    try {
+      socket.send(JSON.stringify({
+        type: "audio",
+        data: toBase64(pcm)
+      }));
+    } catch (error) {
+      console.error("Ошибка отправки аудио:", error);
+    }
   };
   source.connect(processor);
   processor.connect(muteGain);
@@ -502,7 +586,7 @@ async function startVoiceMode() {
   assistantSpeaking = false;
   assistantTurnActive = false;
   outputTextBuffer = "";
-  inputTextBuffer = "";
+  clearInputTranscription();
   setVoiceButton(true);
   setOrb(false);
   setStatus("Подключаю Катю...");
@@ -570,6 +654,7 @@ function stopVoiceMode() {
   voiceActive = false;
   sessionId++;
   stopMicrophone();
+  clearInputTranscription();
   if (socket) {
     const oldSocket = socket;
     socket = null;
