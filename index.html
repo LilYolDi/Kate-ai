@@ -13,7 +13,7 @@
   <div class="app voice-screen">
 
     <header class="top-bar">
-      <button class="round-button" id="menuButton" aria-label="Меню">
+      <button class="round-button" id="menuButton" aria-label="Меню" aria-expanded="false">
         <span class="menu-icon">☰</span>
       </button>
 
@@ -26,6 +26,65 @@
         <span class="settings-icon">☷</span>
       </button>
     </header>
+
+    <!-- Боковое меню -->
+    <div class="menu-overlay" id="menuOverlay"></div>
+
+    <aside class="side-menu" id="sideMenu" aria-hidden="true">
+
+      <div class="drawer-header">
+        <div class="drawer-avatar">
+          <div class="drawer-orb"></div>
+        </div>
+
+        <div class="drawer-title">
+          <strong>Катя AI</strong>
+          <span>Твоя личная помощница ❤️</span>
+        </div>
+
+        <button class="drawer-close" id="drawerClose" aria-label="Закрыть меню">×</button>
+      </div>
+
+      <div class="drawer-divider"></div>
+
+      <div class="drawer-label">ГЛАВНОЕ</div>
+
+      <button class="drawer-item active" data-drawer-action="home">
+        <span class="drawer-icon">⌂</span>
+        <span>Главная</span>
+      </button>
+
+      <button class="drawer-item" data-drawer-action="history">
+        <span class="drawer-icon">◷</span>
+        <span>История разговоров</span>
+      </button>
+
+      <button class="drawer-item" data-drawer-action="chat">
+        <span class="drawer-icon">♡</span>
+        <span>Общение с Катей</span>
+      </button>
+
+      <div class="drawer-divider"></div>
+
+      <div class="drawer-label">ПЕРСОНАЛИЗАЦИЯ</div>
+
+      <button class="drawer-item" data-drawer-action="appearance">
+        <span class="drawer-icon">✿</span>
+        <span>Внешний вид</span>
+      </button>
+
+      <button class="drawer-item" data-drawer-action="settings">
+        <span class="drawer-icon">⚙</span>
+        <span>Настройки</span>
+      </button>
+
+      <div class="drawer-footer">
+        <div class="drawer-footer-line"></div>
+        <div class="drawer-footer-name">KATYA AI</div>
+        <div class="drawer-footer-version">Твоя Катя. Всегда рядом ❤️</div>
+      </div>
+
+    </aside>
 
     <main class="voice-main">
 
@@ -44,9 +103,7 @@
     <div class="bottom-controls">
 
       <div class="message-input">
-        <button id="addButton" class="add-button" aria-label="Дополнительно">
-          +
-        </button>
+        <button id="addButton" class="add-button" aria-label="Дополнительно">+</button>
 
         <input
           id="message"
@@ -55,25 +112,23 @@
           autocomplete="off"
         >
 
-        <button id="send" class="send-button" aria-label="Отправить">
-          ➤
-        </button>
+        <button id="send" class="send-button" aria-label="Отправить">➤</button>
       </div>
 
       <button
-  id="voice"
-  class="round-button mic-button"
-  title="Голосовой ввод"
-  aria-label="Включить микрофон"
->
-  <span class="mic-glass">
-    <svg viewBox="0 0 48 48" class="mic-svg">
-      <rect x="18" y="5" width="12" height="23" rx="6"/>
-      <path d="M12 22v2a12 12 0 0 0 24 0v-2"/>
-      <path d="M24 36v7M17 43h14"/>
-    </svg>
-  </span>
-</button>
+        id="voice"
+        class="round-button mic-button"
+        title="Голосовой ввод"
+        aria-label="Включить микрофон"
+      >
+        <span class="mic-glass">
+          <svg viewBox="0 0 48 48" class="mic-svg">
+            <rect x="18" y="5" width="12" height="23" rx="6"/>
+            <path d="M12 22v2a12 12 0 0 0 24 0v-2"/>
+            <path d="M24 36v7M17 43h14"/>
+          </svg>
+        </span>
+      </button>
 
       <button
         id="voiceExit"
@@ -88,5 +143,60 @@
   </div>
 
   <script src="app.js"></script>
+
+  <script>
+    const menuButton = document.getElementById('menuButton');
+    const sideMenu = document.getElementById('sideMenu');
+    const menuOverlay = document.getElementById('menuOverlay');
+    const drawerClose = document.getElementById('drawerClose');
+
+    function openKatyaMenu() {
+      sideMenu.classList.add('menu-open');
+      menuOverlay.classList.add('overlay-visible');
+      sideMenu.setAttribute('aria-hidden', 'false');
+      menuButton.setAttribute('aria-expanded', 'true');
+    }
+
+    function closeKatyaMenu() {
+      sideMenu.classList.remove('menu-open');
+      menuOverlay.classList.remove('overlay-visible');
+      sideMenu.setAttribute('aria-hidden', 'true');
+      menuButton.setAttribute('aria-expanded', 'false');
+    }
+
+    menuButton.addEventListener('click', openKatyaMenu);
+    drawerClose.addEventListener('click', closeKatyaMenu);
+    menuOverlay.addEventListener('click', closeKatyaMenu);
+
+    document.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape') closeKatyaMenu();
+    });
+
+    document.querySelectorAll('.drawer-item').forEach(function(item) {
+      item.addEventListener('click', function() {
+        const action = item.dataset.drawerAction;
+
+        if (action === 'chat') {
+          document.getElementById('message').focus();
+        }
+
+        if (action === 'history') {
+          const chat = document.getElementById('chat');
+          chat.scrollTop = chat.scrollHeight;
+        }
+
+        if (action === 'appearance') {
+          document.body.classList.toggle('pink-theme');
+        }
+
+        if (action === 'settings') {
+          document.getElementById('settingsButton').click();
+        }
+
+        closeKatyaMenu();
+      });
+    });
+  </script>
+
 </body>
 </html>
