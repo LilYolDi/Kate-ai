@@ -14,11 +14,9 @@ let source = null;
 let muteGain = null;
 
 let voiceActive = false;
-let audioNextTime = 0;
 let assistantSpeaking = false;
 let assistantTurnActive = false;
 
-let audioSources = new Set();
 let history = [];
 let outputTextBuffer = "";
 let inputTextBuffer = "";
@@ -26,6 +24,12 @@ let sessionId = 0;
 
 let lastLaunchedApp = "";
 let lastLaunchTime = 0;
+
+// Очередь воспроизведения HTML Audio
+let katyaAudioQueue = [];
+let katyaAudioPlaying = false;
+let activeKatyaAudio = null;
+let activeKatyaAudioUrl = null;
 
 // Приложения Android
 const katyaApps = {
@@ -312,84 +316,152 @@ function toBase64(int16Array) {
   return btoa(binary);
 }
 
-// Остановка воспроизведения
+// Остановка всего воспроизведения
 function stopAllAudio() {
-  for (const audioSource of audioSources) {
-    try {
-      audioSource.stop();
-    } catch (error) {}
+  katyaAudioQueue.forEach(url => {
+    URL.revokeObjectURL(url);
+  });
+
+  katyaAudioQueue = [];
+
+  if (activeKatyaAudio) {
+    activeKatyaAudio.pause();
+    activeKatyaAudio.src = "";
+    activeKatyaAudio = null;
   }
 
-  audioSources.clear();
+  if (activeKatyaAudioUrl) {
+    URL.revokeObjectURL(activeKatyaAudioUrl);
+    activeKatyaAudioUrl = null;
+  }
 
-  audioNextTime = audioContext
-    ? audioContext.currentTime
-    : 0;
-
+  katyaAudioPlaying = false;
   assistantSpeaking = false;
   assistantTurnActive = false;
 }
 
-// Воспроизведение голоса Gemini
+// Создание WAV из PCM Gemini
+function createKatyaWav(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  // PCM должен содержать целое число 16-битных отсчётов
+  const pcmLength = bytes.length - (bytes.length % 2);
+
+  if (!pcmLength) return null;
+
+  const pcmBytes = bytes.slice(0, pcmLength);
+
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+
+  function writeString(offset, value) {
+    for (let i = 0; i < value.length; i++) {
+      view.setUint8(offset + i, value.charCodeAt(i));
+    }
+  }
+
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + pcmLength, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 24000, true);
+  view.setUint32(28, 48000, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, pcmLength, true);
+
+  return new Blob([header, pcmBytes], {
+    type: "audio/wav"
+  });
+}
+
+// Воспроизведение следующего фрагмента
+function playNextKatyaAudio() {
+  if (katyaAudioPlaying || !katyaAudioQueue.length) {
+    if (
+      !katyaAudioPlaying &&
+      !katyaAudioQueue.length &&
+      !assistantTurnActive
+    ) {
+      assistantSpeaking = false;
+    }
+
+    return;
+  }
+
+  if (!voiceActive) {
+    stopAllAudio();
+    return;
+  }
+
+  const url = katyaAudioQueue.shift();
+
+  const audio = new Audio(url);
+
+  activeKatyaAudio = audio;
+  activeKatyaAudioUrl = url;
+  katyaAudioPlaying = true;
+
+  const finishCurrentAudio = () => {
+    if (activeKatyaAudio !== audio) return;
+
+    audio.onended = null;
+    audio.onerror = null;
+
+    audio.pause();
+    audio.src = "";
+
+    URL.revokeObjectURL(url);
+
+    activeKatyaAudio = null;
+    activeKatyaAudioUrl = null;
+    katyaAudioPlaying = false;
+
+    if (katyaAudioQueue.length) {
+      playNextKatyaAudio();
+    } else if (!assistantTurnActive) {
+      assistantSpeaking = false;
+    }
+  };
+
+  audio.onended = finishCurrentAudio;
+  audio.onerror = () => {
+    console.error("Ошибка HTML Audio");
+    finishCurrentAudio();
+  };
+
+  audio.play().catch(error => {
+    console.error("Ошибка запуска HTML Audio:", error);
+    finishCurrentAudio();
+  });
+}
+
+// Воспроизведение голоса Gemini через HTML Audio
 function playAudio(base64) {
-  if (!audioContext || !voiceActive) return;
+  if (!voiceActive) return;
 
   try {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
+    const wav = createKatyaWav(base64);
 
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
+    if (!wav) return;
 
-    const samples = new Int16Array(
-      bytes.buffer,
-      bytes.byteOffset,
-      Math.floor(bytes.byteLength / 2)
-    );
+    const url = URL.createObjectURL(wav);
 
-    if (!samples.length) return;
-
-    const buffer = audioContext.createBuffer(
-      1,
-      samples.length,
-      24000
-    );
-
-    const channel = buffer.getChannelData(0);
-
-    for (let i = 0; i < samples.length; i++) {
-      channel[i] = samples[i] / 32768;
-    }
-
-    const audioSource = audioContext.createBufferSource();
-    audioSource.buffer = buffer;
-    audioSource.connect(audioContext.destination);
+    katyaAudioQueue.push(url);
 
     assistantTurnActive = true;
     assistantSpeaking = true;
 
-    audioSources.add(audioSource);
-
-    audioSource.onended = () => {
-      audioSources.delete(audioSource);
-
-      if (
-        audioSources.size === 0 &&
-        !assistantTurnActive
-      ) {
-        assistantSpeaking = false;
-      }
-    };
-
-    const now = audioContext.currentTime;
-
-    if (audioNextTime < now) {
-      audioNextTime = now;
-    }
-
-    audioSource.start(audioNextTime);
-    audioNextTime += buffer.duration;
+    playNextKatyaAudio();
 
   } catch (error) {
     console.error("Ошибка воспроизведения:", error);
@@ -485,7 +557,10 @@ function processGeminiMessage(message) {
 
     assistantTurnActive = false;
 
-    if (audioSources.size === 0) {
+    if (
+      !katyaAudioPlaying &&
+      katyaAudioQueue.length === 0
+    ) {
       assistantSpeaking = false;
     }
   }
@@ -571,16 +646,14 @@ function stopMicrophone() {
     microphone = null;
   }
 
-  if (audioContext) {
-    stopAllAudio();
+  stopAllAudio();
 
+  if (audioContext) {
     const oldContext = audioContext;
     audioContext = null;
 
     oldContext.close().catch(() => {});
   }
-
-  audioNextTime = 0;
 }
 
 async function startVoiceMode() {
@@ -598,6 +671,8 @@ async function startVoiceMode() {
   assistantTurnActive = false;
   outputTextBuffer = "";
   inputTextBuffer = "";
+
+  stopAllAudio();
 
   setVoiceButton(true);
   setOrb(false);
