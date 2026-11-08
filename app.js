@@ -1,3 +1,4 @@
+
 const chat = document.getElementById("chat");
 const messageInput = document.getElementById("message");
 const sendButton = document.getElementById("send");
@@ -27,6 +28,10 @@ let inputTranscriptionTimer = null;
 let sessionId = 0;
 let lastLaunchedApp = "";
 let lastLaunchTime = 0;
+
+// Буфер воспроизведения голоса Кати
+const AUDIO_BUFFER_SECONDS = 0.20;
+const AUDIO_MIN_AHEAD_SECONDS = 0.025;
 
 // Голосовая активация «Катя»
 let wakeRecognition = null;
@@ -436,7 +441,7 @@ function speakWakeGreeting() {
   }
 }
 
-// Воспроизведение голоса Gemini
+// Воспроизведение голоса Gemini с предварительной буферизацией
 function playAudio(base64) {
   if (!audioContext || !voiceActive) return;
 
@@ -494,11 +499,17 @@ function playAudio(base64) {
 
     const now = audioContext.currentTime;
 
-    if (audioNextTime < now) {
-      audioNextTime = now;
+    // Если очередь закончилась или отстала,
+    // начинаем новую с небольшим запасом времени.
+    if (
+      audioNextTime < now + AUDIO_MIN_AHEAD_SECONDS
+    ) {
+      audioNextTime = now + AUDIO_BUFFER_SECONDS;
     }
 
+    // Следующий фрагмент ставится сразу за предыдущим.
     audioSource.start(audioNextTime);
+
     audioNextTime += buffer.duration;
 
   } catch (error) {
@@ -694,11 +705,7 @@ async function startMicrophone() {
   muteGain.gain.value = 0;
 
   processor.onaudioprocess = event => {
-    // ВАЖНО:
     // Не блокируем микрофон во время речи Кати.
-    // Gemini Live самостоятельно обрабатывает паузы,
-    // определяет окончание речи и перебивания.
-
     if (
       !voiceActive ||
       !socket ||
