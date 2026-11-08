@@ -65,10 +65,44 @@
       <div class="drawer-divider"></div>
       <div class="drawer-label">ПЕРСОНАЛИЗАЦИЯ</div>
 
-      <button class="drawer-item" data-drawer-action="appearance">
+      <button
+        class="drawer-item"
+        id="appearanceToggle"
+        aria-expanded="false"
+        aria-controls="themeOptions"
+      >
         <span class="drawer-icon">✿</span>
         <span>Внешний вид</span>
+        <span class="appearance-arrow" id="appearanceArrow">⌄</span>
       </button>
+
+      <div class="theme-options" id="themeOptions" hidden>
+
+        <button class="theme-choice" data-theme-choice="light">
+          <span class="theme-color theme-white"></span>
+          <span>Светлая</span>
+          <span class="theme-selected">✓</span>
+        </button>
+
+        <button class="theme-choice" data-theme-choice="gray">
+          <span class="theme-color theme-gray"></span>
+          <span>Серая</span>
+          <span class="theme-selected">✓</span>
+        </button>
+
+        <button class="theme-choice" data-theme-choice="pink">
+          <span class="theme-color theme-pink"></span>
+          <span>Pink Glass</span>
+          <span class="theme-selected">✓</span>
+        </button>
+
+        <button class="theme-choice" data-theme-choice="dark">
+          <span class="theme-color theme-dark"></span>
+          <span>Тёмная</span>
+          <span class="theme-selected">✓</span>
+        </button>
+
+      </div>
 
       <button class="drawer-item" data-drawer-action="settings">
         <span class="drawer-icon">⚙</span>
@@ -83,7 +117,7 @@
 
     </aside>
 
-    <main class="voice-main" id="mainScreen">
+    <main class="voice-main">
 
       <div class="orb-container">
         <div class="orb" id="katyaOrb"></div>
@@ -97,89 +131,7 @@
 
     </main>
 
-    <!-- Раздел внешнего вида -->
-    <section class="appearance-screen" id="appearanceScreen" hidden>
-
-      <div class="appearance-header">
-        <button class="round-button" id="appearanceBack" aria-label="Назад">←</button>
-
-        <div>
-          <strong>Внешний вид</strong>
-          <span>Выбери оформление чата</span>
-        </div>
-      </div>
-
-      <div class="appearance-content">
-
-        <div class="appearance-heading">
-          ОФОРМЛЕНИЕ ЧАТА
-        </div>
-
-        <div class="theme-list">
-
-          <button class="theme-option" data-theme-choice="light">
-            <span class="theme-preview preview-light">
-              <span class="preview-message preview-left"></span>
-              <span class="preview-message preview-right"></span>
-              <span class="preview-message preview-left small"></span>
-            </span>
-            <span class="theme-info">
-              <strong>Светлая</strong>
-              <small>Чистый белый фон</small>
-            </span>
-            <span class="theme-check">✓</span>
-          </button>
-
-          <button class="theme-option" data-theme-choice="gray">
-            <span class="theme-preview preview-gray">
-              <span class="preview-message preview-left"></span>
-              <span class="preview-message preview-right"></span>
-              <span class="preview-message preview-left small"></span>
-            </span>
-            <span class="theme-info">
-              <strong>Серая</strong>
-              <small>Спокойные серые оттенки</small>
-            </span>
-            <span class="theme-check">✓</span>
-          </button>
-
-          <button class="theme-option" data-theme-choice="pink">
-            <span class="theme-preview preview-pink">
-              <span class="preview-message preview-left"></span>
-              <span class="preview-message preview-right"></span>
-              <span class="preview-message preview-left small"></span>
-            </span>
-            <span class="theme-info">
-              <strong>Pink Glass</strong>
-              <small>Фирменный розовый стиль Кати</small>
-            </span>
-            <span class="theme-check">✓</span>
-          </button>
-
-          <button class="theme-option" data-theme-choice="dark">
-            <span class="theme-preview preview-dark">
-              <span class="preview-message preview-left"></span>
-              <span class="preview-message preview-right"></span>
-              <span class="preview-message preview-left small"></span>
-            </span>
-            <span class="theme-info">
-              <strong>Тёмная</strong>
-              <small>Тёмный фон для вечера</small>
-            </span>
-            <span class="theme-check">✓</span>
-          </button>
-
-        </div>
-
-        <div class="appearance-note">
-          ❤️ Выбранное оформление сохраняется автоматически.
-        </div>
-
-      </div>
-
-    </section>
-
-    <div class="bottom-controls" id="bottomControls">
+    <div class="bottom-controls">
 
       <div class="message-input">
         <button id="addButton" class="add-button" aria-label="Дополнительно">+</button>
@@ -229,11 +181,9 @@
     const menuOverlay = document.getElementById('menuOverlay');
     const drawerClose = document.getElementById('drawerClose');
 
-    const appearanceScreen = document.getElementById('appearanceScreen');
-    const mainScreen = document.getElementById('mainScreen');
-    const bottomControls = document.getElementById('bottomControls');
-
-    const appearanceBack = document.getElementById('appearanceBack');
+    const appearanceToggle = document.getElementById('appearanceToggle');
+    const themeOptions = document.getElementById('themeOptions');
+    const appearanceArrow = document.getElementById('appearanceArrow');
 
     function openKatyaMenu() {
       sideMenu.classList.add('menu-open');
@@ -249,20 +199,12 @@
       menuButton.setAttribute('aria-expanded', 'false');
     }
 
-    function openAppearance() {
-      closeKatyaMenu();
+    function toggleAppearance() {
+      const isOpen = !themeOptions.hidden;
 
-      mainScreen.hidden = true;
-      bottomControls.hidden = true;
-      appearanceScreen.hidden = false;
-
-      updateThemeSelection();
-    }
-
-    function closeAppearance() {
-      appearanceScreen.hidden = true;
-      mainScreen.hidden = false;
-      bottomControls.hidden = false;
+      themeOptions.hidden = isOpen;
+      appearanceToggle.setAttribute('aria-expanded', String(!isOpen));
+      appearanceArrow.textContent = isOpen ? '⌄' : '⌃';
     }
 
     function applyTheme(theme) {
@@ -290,7 +232,7 @@
         const selected = button.dataset.themeChoice === currentTheme;
 
         button.classList.toggle('selected', selected);
-        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        button.setAttribute('aria-pressed', String(selected));
       });
     }
 
@@ -308,7 +250,7 @@
     drawerClose.addEventListener('click', closeKatyaMenu);
     menuOverlay.addEventListener('click', closeKatyaMenu);
 
-    appearanceBack.addEventListener('click', closeAppearance);
+    appearanceToggle.addEventListener('click', toggleAppearance);
 
     document.querySelectorAll('[data-theme-choice]').forEach(function(button) {
       button.addEventListener('click', function() {
@@ -316,7 +258,7 @@
       });
     });
 
-    document.querySelectorAll('.drawer-item').forEach(function(item) {
+    document.querySelectorAll('.drawer-item[data-drawer-action]').forEach(function(item) {
       item.addEventListener('click', function() {
         const action = item.dataset.drawerAction;
 
@@ -327,11 +269,6 @@
         if (action === 'history') {
           const chat = document.getElementById('chat');
           chat.scrollTop = chat.scrollHeight;
-        }
-
-        if (action === 'appearance') {
-          openAppearance();
-          return;
         }
 
         if (action === 'settings') {
@@ -345,10 +282,6 @@
     document.addEventListener('keydown', function(event) {
       if (event.key === 'Escape') {
         closeKatyaMenu();
-
-        if (!appearanceScreen.hidden) {
-          closeAppearance();
-        }
       }
     });
   </script>
