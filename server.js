@@ -1,31 +1,41 @@
+
 import express from "express";
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { GoogleGenAI } from "@google/genai";
+
 const app = express();
 const server = http.createServer(app);
+
 const wss = new WebSocketServer({
   noServer: true,
   maxPayload: 2 * 1024 * 1024
 });
+
 // ===============================
 // CONFIGURATION
 // ===============================
+
 const PORT = process.env.PORT || 10000;
 const API_KEY = process.env.GEMINI_API_KEY;
+
 const LIVE_MODEL = "gemini-3.8-live";
 const CHAT_MODEL = "gemini-3.8-flash";
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static("."));
+
 if (!API_KEY) {
   console.error("GEMINI_API_KEY не задан!");
 }
+
 const ai = API_KEY
   ? new GoogleGenAI({
       apiKey: API_KEY,
       apiVersion: "v1beta"
     })
   : null;
+
 // ===============================
 // KATYA PERSONALITY
 // ===============================
@@ -71,12 +81,66 @@ const SYSTEM_PROMPT = `
 Ты Катя — личная интеллектуальная помощница.
 Ты свободная, естественная и открытая собеседница.
 `;
+
+// ===============================
+// HELPERS
+// ===============================
+
 function getErrorMessage(error) {
   return error?.message || "Неизвестная ошибка сервера";
 }
+
+function cleanHistory(history, maxItems = 20) {
+  if (!Array.isArray(history)) {
+    return [];
+  }
+
+  return history
+    .filter(item =>
+      item &&
+      ["user", "model"].includes(item.role) &&
+      typeof item.text === "string"
+    )
+    .slice(-maxItems)
+    .map(item => ({
+      role: item.role,
+      text: item.text.slice(0, 5000)
+    }));
+}
+
+function createLiveHistoryContext(history) {
+  const messages = cleanHistory(history, 20);
+
+  if (!messages.length) {
+    return null;
+  }
+
+  const transcript = messages
+    .map(item => {
+      const speaker =
+        item.role === "user" ? "Пользователь" : "Катя";
+
+      return `${speaker}: ${item.text}`;
+    })
+    .join("\n");
+
+  return `
+Это предыдущая история нашего разговора.
+
+Используй её как контекст и помни, о чём мы говорили.
+Продолжай общение с учётом этой истории.
+Не пересказывай историю и не отвечай на старые сообщения.
+Просто продолжай разговор с последнего актуального момента.
+
+ИСТОРИЯ:
+${transcript}
+`;
+}
+
 // ===============================
 // HEALTH CHECK
 // ===============================
+
 app.get("/health", (req, res) => {
   res.json({
     status: "OK",
@@ -86,9 +150,11 @@ app.get("/health", (req, res) => {
     connections: wss.clients.size
   });
 });
+
 // ===============================
 // TEXT CHAT
 // ===============================
+
 app.post("/api/chat", async (req, res) => {
   try {
     if (!ai) {
@@ -96,37 +162,42 @@ app.post("/api/chat", async (req, res) => {
         error: "Gemini API не настроен на сервере"
       });
     }
+
     const message = String(
       req.body?.message || ""
     ).trim();
+
     if (!message) {
       return res.status(400).json({
         error: "Пустое сообщение"
       });
     }
+
     if (message.length > 20000) {
       return res.status(413).json({
         error: "Сообщение слишком длинное"
       });
     }
-    const history = Array.isArray(req.body?.history)
-      ? req.body.history.slice(-20)
-      : [];
-    const contents = history
-      .filter(item =>
-        ["user", "model"].includes(item.role) &&
-        typeof item.text === "string"
-      )
-      .map(item => ({
-        role: item.role,
-        parts: [{
-          text: item.text.slice(0, 10000)
-        }]
-      }));
+
+    const history = cleanHistory(
+      req.body?.history,
+      20
+    );
+
+    const contents = history.map(item => ({
+      role: item.role,
+      parts: [{
+        text: item.text
+      }]
+    }));
+
     contents.push({
       role: "user",
-      parts: [{ text: message }]
+      parts: [{
+        text: message
+      }]
     });
+
     const result = await ai.models.generateContent({
       model: CHAT_MODEL,
       contents,
@@ -136,22 +207,28 @@ app.post("/api/chat", async (req, res) => {
         maxOutputTokens: 2048
       }
     });
+
     res.json({
       reply: result.text ||
         "Я пока не смогла сформулировать ответ."
     });
+
   } catch (error) {
     console.error("CHAT ERROR:", error);
+
     res.status(500).json({
       error: getErrorMessage(error)
     });
   }
 });
+
 // ===============================
 // WEBSOCKET UPGRADE
 // ===============================
+
 server.on("upgrade", (request, socket, head) => {
   let pathname;
+
   try {
     pathname = new URL(
       request.url,
@@ -161,57 +238,178 @@ server.on("upgrade", (request, socket, head) => {
     socket.destroy();
     return;
   }
+
   if (pathname !== "/live") {
     socket.destroy();
     return;
   }
+
   wss.handleUpgrade(request, socket, head, ws => {
     wss.emit("connection", ws, request);
   });
 });
+
 // ===============================
 // GEMINI LIVE
 // ===============================
+
 wss.on("connection", async ws => {
   let session = null;
   let closed = false;
   let connecting = true;
+
+  const pendingMessages = [];
+
   const send = data => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(data));
     }
   };
+
   const closeSession = () => {
+    if (closed) return;
+
     closed = true;
+
     if (session) {
       try {
         session.close();
       } catch (error) {
         console.error("SESSION CLOSE:", error);
       }
+
       session = null;
     }
   };
+
   ws.on("close", closeSession);
+
   ws.on("error", error => {
     console.error("BROWSER WS ERROR:", error.message);
     closeSession();
   });
+
+  // ===============================
+  // INCOMING AUDIO, TEXT AND HISTORY
+  // ===============================
+
+  const handleIncomingMessage = data => {
+    try {
+      if (!session || closed) return;
+
+      // История сохранённого разговора
+      if (
+        (data.type === "history" ||
+         data.type === "init") &&
+        Array.isArray(data.history)
+      ) {
+        const context = createLiveHistoryContext(
+          data.history
+        );
+
+        if (context) {
+          session.sendClientContent({
+            turns: [{
+              role: "user",
+              parts: [{
+                text: context
+              }]
+            }],
+            turnComplete: false
+          });
+
+          send({
+            type: "history_loaded",
+            message: "История разговора передана Кате."
+          });
+
+          console.log(
+            "История разговора передана Gemini Live"
+          );
+        }
+
+        return;
+      }
+
+      // Входящий текст
+      if (data.type === "text" && data.text) {
+        session.sendRealtimeInput({
+          text: String(data.text).slice(0, 10000)
+        });
+
+        return;
+      }
+
+      // Входящее аудио
+      if (data.type === "audio" && data.data) {
+        session.sendRealtimeInput({
+          audio: {
+            data: data.data,
+            mimeType: "audio/pcm;rate=16000"
+          }
+        });
+      }
+
+    } catch (error) {
+      console.error("MESSAGE ERROR:", error);
+
+      send({
+        type: "error",
+        message: getErrorMessage(error)
+      });
+    }
+  };
+
+  // Слушатель устанавливается до подключения Gemini
+  ws.on("message", raw => {
+    try {
+      const data = JSON.parse(raw.toString());
+
+      if (connecting) {
+        if (pendingMessages.length < 100) {
+          pendingMessages.push(data);
+        }
+
+        return;
+      }
+
+      handleIncomingMessage(data);
+
+    } catch (error) {
+      console.error("MESSAGE PARSE ERROR:", error);
+
+      send({
+        type: "error",
+        message: "Ошибка обработки сообщения."
+      });
+    }
+  });
+
+  // ===============================
+  // CONNECT GEMINI LIVE
+  // ===============================
+
   try {
     if (!ai) {
       throw new Error(
         "GEMINI_API_KEY не установлен"
       );
     }
+
     console.log("Катя подключается к Gemini Live...");
+
     session = await ai.live.connect({
       model: LIVE_MODEL,
+
       config: {
         responseModalities: ["AUDIO"],
+
         inputAudioTranscription: {
           languageCodes: ["ru-RU"]
         },
+
         outputAudioTranscription: {},
+
         realtimeInputConfig: {
           automaticActivityDetection: {
             disabled: false,
@@ -219,6 +417,7 @@ wss.on("connection", async ws => {
             silenceDurationMs: 800
           }
         },
+
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: {
@@ -226,12 +425,14 @@ wss.on("connection", async ws => {
             }
           }
         },
+
         systemInstruction: {
           parts: [{
             text: SYSTEM_PROMPT
           }]
         }
       },
+
       callbacks: {
         onmessage(message) {
           send({
@@ -239,18 +440,22 @@ wss.on("connection", async ws => {
             data: message
           });
         },
+
         onerror(error) {
           console.error("LIVE ERROR:", error);
+
           send({
             type: "error",
             message: getErrorMessage(error)
           });
         },
+
         onclose(event) {
           console.log(
             "Gemini Live закрыла соединение:",
             event?.reason || ""
           );
+
           send({
             type: "closed",
             message: event?.reason || "Соединение закрыто"
@@ -258,60 +463,49 @@ wss.on("connection", async ws => {
         }
       }
     });
+
     connecting = false;
+
     if (closed || ws.readyState !== WebSocket.OPEN) {
       closeSession();
       return;
     }
+
     console.log("Катя подключена к Gemini Live!");
+
     send({
       type: "ready",
       message: "Катя подключена. Можешь говорить."
     });
-    // ===============================
-    // INCOMING AUDIO AND TEXT
-    // ===============================
-    ws.on("message", raw => {
-      try {
-        if (!session || closed) return;
-        const data = JSON.parse(raw.toString());
-        if (data.type === "audio" && data.data) {
-          session.sendRealtimeInput({
-            audio: {
-              data: data.data,
-              mimeType: "audio/pcm;rate=16000"
-            }
-          });
-        }
-        if (data.type === "text" && data.text) {
-          session.sendRealtimeInput({
-            text: String(data.text).slice(0, 10000)
-          });
-        }
-      } catch (error) {
-        console.error("MESSAGE ERROR:", error);
-        send({
-          type: "error",
-          message: getErrorMessage(error)
-        });
-      }
-    });
+
+    // Обрабатываем сообщения, пришедшие во время подключения
+    while (pendingMessages.length > 0 && !closed) {
+      const data = pendingMessages.shift();
+      handleIncomingMessage(data);
+    }
+
   } catch (error) {
     connecting = false;
+
     console.error("LIVE CONNECTION ERROR:", error);
+
     send({
       type: "error",
       message: getErrorMessage(error)
     });
+
     closeSession();
+
     if (ws.readyState === WebSocket.OPEN) {
       ws.close(1011, "Gemini connection error");
     }
   }
 });
+
 // ===============================
 // SERVER START
 // ===============================
+
 server.listen(PORT, () => {
   console.log("--------------------------------");
   console.log("KATYA AI ЗАПУЩЕНА");
@@ -319,22 +513,29 @@ server.listen(PORT, () => {
   console.log("Gemini API:", API_KEY ? "OK" : "НЕ НАСТРОЕН");
   console.log("Голосовой сервер: /live");
   console.log("Текстовый чат: /api/chat");
+  console.log("История разговоров: ENABLED");
   console.log("--------------------------------");
 });
+
 // ===============================
 // GRACEFUL SHUTDOWN
 // ===============================
+
 function shutdown() {
   console.log("Остановка Katya AI...");
+
   for (const client of wss.clients) {
     client.close(1001, "Server shutdown");
   }
+
   server.close(() => {
     process.exit(0);
   });
+
   setTimeout(() => {
     process.exit(1);
   }, 10000).unref();
 }
+
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
