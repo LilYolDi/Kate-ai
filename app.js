@@ -41,54 +41,245 @@ let wakeStarting = false;
 let wakeRestartTimer = null;
 let wakeGreetingPending = false;
 
-// Приложения Android
+// ===============================
+// ОПРЕДЕЛЕНИЕ УСТРОЙСТВА
+// ===============================
+
+function isIOSDevice() {
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (
+      navigator.platform === "MacIntel" &&
+      navigator.maxTouchPoints > 1
+    );
+}
+
+function isAndroidDevice() {
+  return /Android/i.test(navigator.userAgent);
+}
+
+// ===============================
+// ПРИЛОЖЕНИЯ
+// ===============================
+
 const katyaApps = {
   youtube: {
     name: "YouTube",
     aliases: ["youtube", "ютуб", "ютюб"],
-    url: "intent://www.youtube.com/#Intent;scheme=https;package=com.google.android.youtube;end"
+
+    androidUrl:
+      "intent://www.youtube.com/#Intent;scheme=https;package=com.google.android.youtube;end",
+
+    iosUrl:
+      "https://www.youtube.com/",
+
+    webUrl:
+      "https://www.youtube.com/"
   },
+
   telegram: {
     name: "Telegram",
     aliases: ["telegram", "телеграм", "телеграмм"],
-    url: "intent://resolve/#Intent;scheme=tg;package=org.telegram.messenger;end"
+
+    androidUrl:
+      "intent://resolve/#Intent;scheme=tg;package=org.telegram.messenger;end",
+
+    iosUrl:
+      "https://t.me/",
+
+    webUrl:
+      "https://web.telegram.org/"
   },
+
   tiktok: {
     name: "TikTok",
     aliases: ["tiktok", "тик ток", "тикток"],
-    url: "intent://www.tiktok.com/#Intent;scheme=https;package=com.zhiliaoapp.musically;end"
+
+    androidUrl:
+      "intent://www.tiktok.com/#Intent;scheme=https;package=com.zhiliaoapp.musically;end",
+
+    iosUrl:
+      "https://www.tiktok.com/",
+
+    webUrl:
+      "https://www.tiktok.com/"
   },
+
   chrome: {
     name: "Chrome",
     aliases: ["chrome", "гугл хром", "хром"],
-    url: "intent://www.google.com/#Intent;scheme=https;package=com.android.chrome;end"
+
+    androidUrl:
+      "intent://www.google.com/#Intent;scheme=https;package=com.android.chrome;end",
+
+    iosUrl:
+      "https://www.google.com/",
+
+    webUrl:
+      "https://www.google.com/"
   },
+
   instagram: {
     name: "Instagram",
     aliases: ["instagram", "инстаграм", "инстаграмм"],
-    url: "intent://www.instagram.com/#Intent;scheme=https;package=com.instagram.android;end"
+
+    androidUrl:
+      "intent://www.instagram.com/#Intent;scheme=https;package=com.instagram.android;end",
+
+    iosUrl:
+      "https://www.instagram.com/",
+
+    webUrl:
+      "https://www.instagram.com/"
   },
+
   facebook: {
     name: "Facebook",
     aliases: ["facebook", "фейсбук"],
-    url: "intent://www.facebook.com/#Intent;scheme=https;package=com.facebook.katana;end"
+
+    androidUrl:
+      "intent://www.facebook.com/#Intent;scheme=https;package=com.facebook.katana;end",
+
+    iosUrl:
+      "https://www.facebook.com/",
+
+    webUrl:
+      "https://www.facebook.com/"
   },
+
   whatsapp: {
     name: "WhatsApp",
     aliases: ["whatsapp", "ватсап", "ватсапп", "вотсап"],
-    url: "intent://send/#Intent;scheme=whatsapp;package=com.whatsapp;end"
+
+    androidUrl:
+      "intent://send/#Intent;scheme=whatsapp;package=com.whatsapp;end",
+
+    iosUrl:
+      "https://wa.me/",
+
+    webUrl:
+      "https://web.whatsapp.com/"
   },
+
   settings: {
     name: "Настройки планшета",
+
     aliases: [
       "настройки планшета",
       "настройки телефона",
       "настройки",
       "settings"
     ],
-    url: "intent://com.android.settings/#Intent;scheme=android-app;end"
+
+    androidUrl:
+      "intent://com.android.settings/#Intent;scheme=android-app;end",
+
+    iosUrl: null,
+
+    webUrl: null
   }
 };
+
+// ===============================
+// ЗАПУСК ПРИЛОЖЕНИЙ
+// ===============================
+
+function launchAndroidApp(appKey) {
+  const app = katyaApps[appKey];
+
+  if (!app) return false;
+
+  console.log("Катя запускает приложение:", app.name);
+
+  try {
+    window.location.assign(
+      app.androidUrl || app.webUrl
+    );
+
+    return true;
+  } catch (error) {
+    console.error("Ошибка запуска Android:", error);
+    return false;
+  }
+}
+
+function launchIOSApp(appKey) {
+  const app = katyaApps[appKey];
+
+  if (!app) return false;
+
+  // iOS не разрешает сайтам напрямую открывать
+  // системные настройки устройства.
+  if (appKey === "settings") {
+    addMessage(
+      "На iPhone Safari не может напрямую открыть системные настройки. Открой их через значок Настройки. ❤️",
+      "katya"
+    );
+
+    return false;
+  }
+
+  console.log("Катя открывает приложение iOS:", app.name);
+
+  try {
+    // Используем HTTPS Universal Links.
+    // iOS может передать ссылку установленному приложению.
+    // Если приложение не установлено, откроется сайт.
+
+    window.location.assign(
+      app.iosUrl || app.webUrl
+    );
+
+    return true;
+
+  } catch (error) {
+    console.error("Ошибка запуска iOS:", error);
+
+    if (app.webUrl) {
+      window.location.assign(app.webUrl);
+      return true;
+    }
+
+    return false;
+  }
+}
+
+function launchDesktopApp(appKey) {
+  const app = katyaApps[appKey];
+
+  if (!app) return false;
+
+  if (!app.webUrl) {
+    addMessage(
+      "Это приложение нельзя открыть напрямую из браузера.",
+      "katya"
+    );
+
+    return false;
+  }
+
+  window.location.assign(app.webUrl);
+
+  return true;
+}
+
+// Универсальный запуск
+function launchApp(appKey) {
+  if (!katyaApps[appKey]) return false;
+
+  if (isIOSDevice()) {
+    return launchIOSApp(appKey);
+  }
+
+  if (isAndroidDevice()) {
+    return launchAndroidApp(appKey);
+  }
+
+  return launchDesktopApp(appKey);
+}
+
+// ===============================
+// ИНТЕРФЕЙС
+// ===============================
 
 function setStatus(text) {
   addMessage(text, "katya");
@@ -128,7 +319,10 @@ function setVoiceButton(active) {
   );
 }
 
-// Нормализация текста
+// ===============================
+// РАСПОЗНАВАНИЕ КОМАНД
+// ===============================
+
 function normalizeCommandText(text) {
   return String(text || "")
     .toLowerCase()
@@ -138,7 +332,6 @@ function normalizeCommandText(text) {
     .trim();
 }
 
-// Определяем команду запуска
 function detectAppCommand(text) {
   const normalized = normalizeCommandText(text);
 
@@ -169,24 +362,7 @@ function detectAppCommand(text) {
   return null;
 }
 
-// Автоматический запуск приложения Android
-function launchAndroidApp(appKey) {
-  const app = katyaApps[appKey];
-
-  if (!app) return false;
-
-  console.log("Катя запускает приложение:", app.name);
-
-  try {
-    window.location.href = app.url;
-    return true;
-  } catch (error) {
-    console.error("Ошибка запуска приложения:", error);
-    return false;
-  }
-}
-
-// Запасная кнопка на случай блокировки браузером
+// Кнопка запуска приложения
 function showAppLaunchButton(appKey) {
   const app = katyaApps[appKey];
 
@@ -208,13 +384,16 @@ function showAppLaunchButton(appKey) {
   container.className = "message katya";
 
   const text = document.createElement("div");
+
   text.textContent =
-    `Пытаюсь автоматически открыть ${app.name}. ❤️`;
+    `Открываю ${app.name}. ❤️`;
 
   const button = document.createElement("button");
+
   button.type = "button";
   button.className = "app-launch-button";
   button.textContent = `Открыть ${app.name}`;
+
   button.style.display = "block";
   button.style.marginTop = "10px";
   button.style.padding = "11px 18px";
@@ -226,8 +405,9 @@ function showAppLaunchButton(appKey) {
   button.style.fontWeight = "600";
   button.style.cursor = "pointer";
 
+  // Запуск непосредственно по нажатию пользователя.
   button.addEventListener("click", () => {
-    launchAndroidApp(appKey);
+    launchApp(appKey);
   });
 
   container.appendChild(text);
@@ -236,10 +416,14 @@ function showAppLaunchButton(appKey) {
   chat.appendChild(container);
   chat.scrollTop = chat.scrollHeight;
 
-  launchAndroidApp(appKey);
+  // Автоматическая попытка запуска.
+  launchApp(appKey);
 }
 
-// Объединение частей распознанной фразы
+// ===============================
+// ОБРАБОТКА РАСПОЗНАННОГО ТЕКСТА
+// ===============================
+
 function mergeTranscription(current, incoming) {
   current = String(current || "").trim();
   incoming = String(incoming || "").trim();
@@ -272,7 +456,6 @@ function mergeTranscription(current, incoming) {
   return current + " " + incoming;
 }
 
-// Сбор распознанной речи
 function collectInputTranscription(text, isFinal = false) {
   if (!text) return;
 
@@ -294,7 +477,6 @@ function collectInputTranscription(text, isFinal = false) {
   scheduleInputTranscriptionFinish(1400);
 }
 
-// Отложенное завершение распознавания
 function scheduleInputTranscriptionFinish(delay = 1400) {
   if (inputTranscriptionTimer) {
     clearTimeout(inputTranscriptionTimer);
@@ -306,7 +488,6 @@ function scheduleInputTranscriptionFinish(delay = 1400) {
   }, delay);
 }
 
-// Завершение распознавания команды
 function finishInputTranscription() {
   if (inputTranscriptionTimer) {
     clearTimeout(inputTranscriptionTimer);
@@ -333,7 +514,6 @@ function finishInputTranscription() {
   }
 }
 
-// Очистка распознавания
 function clearInputTranscription() {
   if (inputTranscriptionTimer) {
     clearTimeout(inputTranscriptionTimer);
@@ -343,6 +523,10 @@ function clearInputTranscription() {
   inputTextBuffer = "";
   latestInterimTranscription = "";
 }
+
+// ===============================
+// ОБРАБОТКА АУДИО
+// ===============================
 
 function convertTo16kHz(input, inputRate) {
   const outputRate = 16000;
@@ -384,7 +568,6 @@ function toBase64(int16Array) {
   return btoa(binary);
 }
 
-// Остановка воспроизведения
 function stopAllAudio() {
   for (const audioSource of audioSources) {
     try {
@@ -402,7 +585,10 @@ function stopAllAudio() {
   assistantTurnActive = false;
 }
 
-// Приветствие после активации
+// ===============================
+// ПРИВЕТСТВИЕ КАТИ
+// ===============================
+
 function speakWakeGreeting() {
   if (!wakeGreetingPending) return;
 
@@ -441,7 +627,10 @@ function speakWakeGreeting() {
   }
 }
 
-// Воспроизведение голоса Gemini с предварительной буферизацией
+// ===============================
+// ГОЛОС GEMINI
+// ===============================
+
 function playAudio(base64) {
   if (!audioContext || !voiceActive) return;
 
@@ -499,15 +688,12 @@ function playAudio(base64) {
 
     const now = audioContext.currentTime;
 
-    // Если очередь закончилась или отстала,
-    // начинаем новую с небольшим запасом времени.
     if (
       audioNextTime < now + AUDIO_MIN_AHEAD_SECONDS
     ) {
       audioNextTime = now + AUDIO_BUFFER_SECONDS;
     }
 
-    // Следующий фрагмент ставится сразу за предыдущим.
     audioSource.start(audioNextTime);
 
     audioNextTime += buffer.duration;
@@ -527,7 +713,10 @@ function finishOutputText() {
   outputTextBuffer = "";
 }
 
-// Обработка сообщений Gemini
+// ===============================
+// ОБРАБОТКА GEMINI
+// ===============================
+
 function processGeminiMessage(message) {
   if (!message) return;
 
@@ -577,7 +766,6 @@ function processGeminiMessage(message) {
     return;
   }
 
-  // Промежуточное распознавание речи
   if (content.interimInputTranscription?.text) {
     console.log(
       "Промежуточное распознавание:",
@@ -590,7 +778,6 @@ function processGeminiMessage(message) {
     );
   }
 
-  // Финальное распознавание речи
   if (content.inputTranscription?.text) {
     console.log(
       "Ты сказал:",
@@ -603,7 +790,6 @@ function processGeminiMessage(message) {
     );
   }
 
-  // Текст ответа Кати
   if (content.outputTranscription?.text) {
     outputTextBuffer += content.outputTranscription.text;
   } else {
@@ -616,7 +802,6 @@ function processGeminiMessage(message) {
     }
   }
 
-  // Голосовые фрагменты
   const parts = content.modelTurn?.parts || [];
 
   for (const part of parts) {
@@ -625,7 +810,6 @@ function processGeminiMessage(message) {
     }
   }
 
-  // Завершение ответа
   if (content.turnComplete) {
     scheduleInputTranscriptionFinish(1200);
     finishOutputText();
@@ -637,6 +821,10 @@ function processGeminiMessage(message) {
     }
   }
 }
+
+// ===============================
+// МИКРОФОН
+// ===============================
 
 async function startMicrophone() {
   microphone = await navigator.mediaDevices.getUserMedia({
@@ -656,7 +844,6 @@ async function startMicrophone() {
 
   await audioContext.resume();
 
-  // Создаём отдельный медиапоток для голоса Кати
   audioOutputDestination =
     audioContext.createMediaStreamDestination();
 
@@ -705,7 +892,6 @@ async function startMicrophone() {
   muteGain.gain.value = 0;
 
   processor.onaudioprocess = event => {
-    // Не блокируем микрофон во время речи Кати.
     if (
       !voiceActive ||
       !socket ||
@@ -781,7 +967,10 @@ function stopMicrophone() {
   audioNextTime = 0;
 }
 
-// Остановка ожидания слова «Катя»
+// ===============================
+// ГОЛОСОВАЯ АКТИВАЦИЯ «КАТЯ»
+// ===============================
+
 function stopWakeWordListening() {
   if (wakeRestartTimer) {
     clearTimeout(wakeRestartTimer);
@@ -798,7 +987,6 @@ function stopWakeWordListening() {
   wakeStarting = false;
 }
 
-// Обнаружение слова «Катя»
 function handleWakeWord() {
   if (!wakeEnabled || voiceActive) return;
 
@@ -814,7 +1002,6 @@ function handleWakeWord() {
   startVoiceMode();
 }
 
-// Запуск ожидания ключевого слова
 function startWakeWordListening() {
   if (
     !wakeEnabled ||
@@ -922,7 +1109,10 @@ function startWakeWordListening() {
   }
 }
 
-// Запуск голосового режима Gemini
+// ===============================
+// GEMINI LIVE
+// ===============================
+
 async function startVoiceMode() {
   if (voiceActive) return;
 
@@ -1024,7 +1214,10 @@ async function startVoiceMode() {
   }
 }
 
-// Возврат к ожиданию слова после завершения разговора
+// ===============================
+// ПОВТОРНАЯ АКТИВАЦИЯ
+// ===============================
+
 function restartWakeWordListening() {
   if (!wakeEnabled || voiceActive) return;
 
@@ -1038,7 +1231,10 @@ function restartWakeWordListening() {
   }, 1000);
 }
 
-// Остановка голосового режима
+// ===============================
+// ОСТАНОВКА ГОЛОСОВОГО РЕЖИМА
+// ===============================
+
 function stopVoiceMode() {
   if (
     !voiceActive &&
@@ -1088,6 +1284,10 @@ function stopVoiceMode() {
   restartWakeWordListening();
 }
 
+// ===============================
+// ТЕКСТОВЫЙ ЧАТ
+// ===============================
+
 async function sendTextMessage() {
   const message = messageInput.value.trim();
 
@@ -1097,7 +1297,7 @@ async function sendTextMessage() {
 
   addMessage(message, "user");
 
-  // Команда запуска приложения из текстового чата
+  // Команда запуска приложения
   const appKey = detectAppCommand(message);
 
   if (appKey) {
@@ -1145,12 +1345,14 @@ async function sendTextMessage() {
   }
 }
 
-// Кнопка отправки текста
+// ===============================
+// КНОПКИ
+// ===============================
+
 if (sendButton) {
   sendButton.addEventListener("click", sendTextMessage);
 }
 
-// Отправка текста клавишей Enter
 if (messageInput) {
   messageInput.addEventListener("keydown", event => {
     if (event.key === "Enter") {
@@ -1159,7 +1361,6 @@ if (messageInput) {
   });
 }
 
-// Ручное управление голосовым режимом
 if (voiceButton) {
   voiceButton.addEventListener("click", () => {
     if (voiceActive) {
@@ -1172,19 +1373,24 @@ if (voiceButton) {
   });
 }
 
-// Кнопка выхода из голосового режима
 if (voiceExit) {
   voiceExit.addEventListener("click", stopVoiceMode);
 }
 
-// Автоматическое ожидание слова «Катя» после загрузки
+// ===============================
+// АВТОЗАПУСК ОЖИДАНИЯ «КАТЯ»
+// ===============================
+
 window.addEventListener("load", () => {
   setTimeout(() => {
     startWakeWordListening();
   }, 1000);
 });
 
-// Очистка при закрытии страницы
+// ===============================
+// ОЧИСТКА ПРИ ЗАКРЫТИИ СТРАНИЦЫ
+// ===============================
+
 window.addEventListener("beforeunload", () => {
   wakeEnabled = false;
 
