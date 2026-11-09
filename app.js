@@ -2256,38 +2256,49 @@ function stopVoiceMode() {
   restartWakeWordListening();
 }
 
+
 // =====================================================
-// ТЕКСТОВЫЙ ЧАТ
+// ТЕКСТОВЫЙ ЧАТ — GEMINI
 // =====================================================
 
+let textChatSending = false;
+
 async function sendTextMessage() {
-  if (!messageInput) return;
+  if (!messageInput || textChatSending) return;
 
   const message = messageInput.value.trim();
   if (!message) return;
 
   messageInput.value = "";
 
+  // Если Катя ожидает название разговора.
   if (katyaWaitingForTitle) {
     katyaWaitingForTitle = false;
     saveKatyaConversation(message);
     return;
   }
 
+  // Команда сохранения истории.
   if (handleKatyaSaveCommand(message)) {
     addMessage(message, "user");
     return;
   }
 
+  // Сохраняем предыдущую историю ДО добавления нового сообщения.
+  const previousHistory = getKatyaHistoryForAI();
+
+  // Показываем сообщение пользователя.
   addMessage(message, "user");
 
+  // Сохраняем в общую историю Кати.
   recordKatyaMessage("user", message);
 
-  // Музыкальные команды обрабатываются локально.
+  // Обработка музыкальных команд.
   if (handleMusicCommand(message)) {
     return;
   }
 
+  // Обработка запуска приложений.
   const appKey = detectAppCommand(message);
 
   if (appKey) {
@@ -2295,45 +2306,98 @@ async function sendTextMessage() {
     return;
   }
 
+  textChatSending = true;
+
+  if (sendButton) {
+    sendButton.disabled = true;
+  }
+
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
+
       headers: {
         "Content-Type": "application/json"
       },
+
       body: JSON.stringify({
-        message,
-        history: history.slice(-40)
+        message: message,
+
+        // Передаём предыдущие сообщения Gemini.
+        history: previousHistory.slice(-40)
       })
     });
 
-    const data = await response.json();
+    let data;
+
+    try {
+      data = await response.json();
+    } catch (error) {
+      throw new Error("Сервер вернул неправильный ответ.");
+    }
 
     if (!response.ok) {
-      throw new Error(data.error || "Ошибка сервера");
+      throw new Error(
+        data.error || "Ошибка сервера Кати."
+      );
     }
 
-    const reply = data.reply ||
-      "Не получилось получить ответ.";
+    const reply = String(
+      data.reply || "Не получилось получить ответ."
+    ).trim();
 
+    // Отображаем ответ Кати.
     addMessage(reply, "katya");
 
+    // Сохраняем ответ в общую историю разговоров.
     recordKatyaMessage("model", reply);
 
-    history.push(
-      { role: "user", text: message },
-      { role: "model", text: reply }
-    );
+    // Синхронизируем историю для Gemini Live.
+    history = getKatyaHistoryForAI();
 
-    if (history.length > 40) {
-      history = history.slice(-40);
-    }
+    console.log("Текстовый ответ Кати получен.");
 
   } catch (error) {
     console.error("CHAT ERROR:", error);
-    addMessage("Ошибка: " + error.message, "katya");
+
+    addMessage(
+      "Не удалось получить ответ от Кати: " + error.message,
+      "katya"
+    );
+
+  } finally {
+    textChatSending = false;
+
+    if (sendButton) {
+      sendButton.disabled = false;
+    }
+
+    if (messageInput) {
+      messageInput.focus();
+    }
   }
 }
+
+// =====================================================
+// КНОПКИ ТЕКСТОВОГО ЧАТА
+// =====================================================
+
+if (sendButton) {
+  sendButton.addEventListener("click", sendTextMessage);
+}
+
+if (messageInput) {
+  messageInput.addEventListener("keydown", event => {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey
+    ) {
+      event.preventDefault();
+      sendTextMessage();
+    }
+  });
+}
+
 
 // =====================================================
 // КНОПКИ
