@@ -21,10 +21,15 @@ const API_KEY = process.env.GEMINI_API_KEY;
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 
 const LIVE_MODEL = "gemini-3.8-live";
-const CHAT_MODEL = "gemini-3.8-flash";
 
-const CHAT_MAX_RETRIES = 2;
-const CHAT_RETRY_DELAYS = [1000, 2000];
+// Основная и резервная модели текстового чата.
+const CHAT_MODELS = [
+  "gemini-3.8-flash",
+  "gemini-3.5-flash-lite"
+];
+
+const CHAT_RETRIES = 2;
+const CHAT_RETRY_DELAY = 1200;
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static("."));
@@ -104,7 +109,6 @@ function getErrorMessage(error) {
     return "Неизвестная ошибка сервера";
   }
 
-  // Иногда SDK возвращает JSON внутри error.message.
   try {
     const parsed = JSON.parse(message);
 
@@ -113,10 +117,10 @@ function getErrorMessage(error) {
       parsed?.message ||
       message;
   } catch {
-    // Обычное текстовое сообщение.
+    // Обычная текстовая ошибка.
   }
 
-  return String(message);
+  return message;
 }
 
 function getErrorStatus(error) {
@@ -129,27 +133,26 @@ function getErrorStatus(error) {
   for (const candidate of candidates) {
     const status = Number(candidate);
 
-    if (
-      Number.isInteger(status) &&
-      status >= 400 &&
-      status <= 599
-    ) {
+    if (Number.isInteger(status) && status >= 400 && status <= 599) {
       return status;
     }
   }
 
-  return 500;
+  const message = String(error?.message || "");
+
+  const match = message.match(/\b(429|500|502|503|504)\b/);
+
+  return match ? Number(match[1]) : 500;
 }
 
 function isTemporaryGeminiError(error) {
   const status = getErrorStatus(error);
 
-  const errorText = [
-    error?.status,
-    error?.code,
+  const message = [
     error?.message,
-    error?.error?.status,
-    error?.error?.message
+    error?.status,
+    error?.error?.message,
+    error?.error?.status
   ]
     .filter(Boolean)
     .join(" ")
@@ -157,10 +160,9 @@ function isTemporaryGeminiError(error) {
 
   return (
     [429, 500, 502, 503, 504].includes(status) ||
-    errorText.includes("UNAVAILABLE") ||
-    errorText.includes("RESOURCE_EXHAUSTED") ||
-    errorText.includes("DEADLINE_EXCEEDED") ||
-    errorText.includes("SERVICE UNAVAILABLE")
+    message.includes("UNAVAILABLE") ||
+    message.includes("RESOURCE_EXHAUSTED") ||
+    message.includes("DEADLINE_EXCEEDED")
   );
 }
 
@@ -260,6 +262,7 @@ app.get("/health", (req, res) => {
     status: "OK",
     assistant: "Katya AI",
     chat: Boolean(ai),
+    chatModels: CHAT_MODELS,
     voice: Boolean(ai),
     music: Boolean(YOUTUBE_API_KEY),
     connections: wss.clients.size
@@ -278,9 +281,7 @@ app.post("/api/music/search", async (req, res) => {
       });
     }
 
-    const query = String(
-      req.body?.query || ""
-    ).trim();
+    const query = String(req.body?.query || "").trim();
 
     if (!query) {
       return res.status(400).json({
@@ -339,7 +340,7 @@ app.post("/api/music/search", async (req, res) => {
 });
 
 // ===============================
-// TEXT CHAT — GEMINI
+// TEXT CHAT — GEMINI WITH FALLBACK
 // ===============================
 
 app.post("/api/chat", async (req, res) => {
@@ -373,111 +374,113 @@ app.post("/api/chat", async (req, res) => {
 
     const contents = history.map(item => ({
       role: item.role,
-      parts: [
-        {
-          text: item.text
-        }
-      ]
+      parts: [{ text: item.text }]
     }));
 
     contents.push({
       role: "user",
-      parts: [
-        {
-          text: message
-        }
-      ]
+      parts: [{ text: message }]
     });
 
     console.log(
-      `TEXT CHAT: получено сообщение, история: ${history.length} сообщений`
+      `TEXT CHAT: получено сообщение, история: ${history.length}`
     );
 
-    // Повторяем запрос при временной перегрузке Gemini.
     let result = null;
     let lastError = null;
+    let selectedModel = null;
 
-    for (
-      let attempt = 0;
-      attempt <= CHAT_MAX_RETRIES;
-      attempt++
-    ) {
-      try {
-        if (attempt > 0) {
-          const delay = CHAT_RETRY_DELAYS[attempt - 1];
+    // Сначала основная модель, затем резервная.
+    for (const model of CHAT_MODELS) {
+      console.log(`TEXT CHAT: пробуем модель ${model}`);
 
-          console.warn(
-            `GEMINI CHAT: повторная попытка ${attempt}/${CHAT_MAX_RETRIES} через ${delay} мс`
+      for (let attempt = 1; attempt <= CHAT_RETRIES; attempt++) {
+        try {
+          if (attempt > 1) {
+            console.warn(
+              `TEXT CHAT: повтор ${attempt}/${CHAT_RETRIES}, модель ${model}`
+            );
+
+            await wait(CHAT_RETRY_DELAY * (attempt - 1));
+          }
+
+          result = await ai.models.generateContent({
+            model,
+            contents,
+            config: {
+              systemInstruction: SYSTEM_PROMPT,
+              temperature: 0.8,
+              maxOutputTokens: 2048
+            }
+          });
+
+          selectedModel = model;
+          lastError = null;
+
+          break;
+
+        } catch (error) {
+          lastError = error;
+
+          console.error(
+            `TEXT CHAT ERROR (${model}, попытка ${attempt}):`,
+            getErrorMessage(error)
           );
 
-          await wait(delay);
-        }
-
-        result = await ai.models.generateContent({
-          model: CHAT_MODEL,
-
-          contents,
-
-          config: {
-            systemInstruction: SYSTEM_PROMPT,
-            temperature: 0.8,
-            maxOutputTokens: 2048
+          // Не повторяем ошибки, которые не связаны с перегрузкой.
+          if (!isTemporaryGeminiError(error)) {
+            break;
           }
-        });
-
-        lastError = null;
-        break;
-
-      } catch (error) {
-        lastError = error;
-
-        console.error(
-          `GEMINI CHAT ERROR, попытка ${attempt + 1}:`,
-          getErrorMessage(error)
-        );
-
-        if (
-          !isTemporaryGeminiError(error) ||
-          attempt >= CHAT_MAX_RETRIES
-        ) {
-          break;
         }
       }
+
+      if (result) {
+        break;
+      }
+
+      // Если ошибка не временная, резервная модель не поможет.
+      if (lastError && !isTemporaryGeminiError(lastError)) {
+        break;
+      }
+
+      console.warn(
+        `TEXT CHAT: ${model} недоступна, переключаемся дальше.`
+      );
     }
 
-    if (lastError) {
-      const status = getErrorStatus(lastError);
+    if (lastError || !result) {
+      console.error("TEXT CHAT FINAL ERROR:", lastError);
 
-      console.error(
-        "CHAT FINAL ERROR:",
-        lastError
-      );
-
-      if (isTemporaryGeminiError(lastError)) {
+      if (lastError && isTemporaryGeminiError(lastError)) {
         return res.status(503).json({
-          error: "Gemini сейчас перегружена. Не удалось получить ответ после нескольких попыток. Попробуй отправить сообщение немного позже."
+          error: "Сейчас обе модели Gemini временно перегружены. Попробуй отправить сообщение немного позже."
         });
       }
 
-      return res.status(status).json({
-        error: getErrorMessage(lastError)
+      return res.status(
+        lastError ? getErrorStatus(lastError) : 502
+      ).json({
+        error: lastError
+          ? getErrorMessage(lastError)
+          : "Не удалось получить ответ от Gemini."
       });
     }
 
-    const reply = String(
-      result?.text || ""
-    ).trim();
+    const reply = String(result.text || "").trim();
 
     if (!reply) {
       return res.status(502).json({
-        error: "Gemini не вернула текстовый ответ. Попробуй отправить сообщение ещё раз."
+        error: "Gemini не вернула текстовый ответ."
       });
     }
 
-    console.log("TEXT CHAT: ответ Кати сформирован.");
+    console.log(
+      `TEXT CHAT: ответ Кати сформирован через ${selectedModel}.`
+    );
 
     return res.json({
-      reply
+      reply,
+      model: selectedModel
     });
 
   } catch (error) {
@@ -572,29 +575,19 @@ wss.on("connection", async ws => {
         return;
       }
 
-      // История сохранённого разговора.
-
       if (
         (data.type === "history" ||
          data.type === "init") &&
         Array.isArray(data.history)
       ) {
-        const context = createLiveHistoryContext(
-          data.history
-        );
+        const context = createLiveHistoryContext(data.history);
 
         if (context) {
           session.sendClientContent({
-            turns: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: context
-                  }
-                ]
-              }
-            ],
+            turns: [{
+              role: "user",
+              parts: [{ text: context }]
+            }],
             turnComplete: false
           });
 
@@ -603,9 +596,7 @@ wss.on("connection", async ws => {
             message: "История разговора передана Кате."
           });
 
-          console.log(
-            "История разговора передана Gemini Live."
-          );
+          console.log("История разговора передана Gemini Live.");
         } else {
           send({
             type: "history_loaded",
@@ -615,8 +606,6 @@ wss.on("connection", async ws => {
 
         return;
       }
-
-      // Входящий текст.
 
       if (
         data.type === "text" &&
@@ -629,8 +618,6 @@ wss.on("connection", async ws => {
 
         return;
       }
-
-      // Входящее аудио.
 
       if (
         data.type === "audio" &&
@@ -654,8 +641,6 @@ wss.on("connection", async ws => {
       });
     }
   };
-
-  // Слушатель устанавливается до подключения Gemini.
 
   ws.on("message", raw => {
     try {
@@ -691,9 +676,7 @@ wss.on("connection", async ws => {
 
   try {
     if (!ai) {
-      throw new Error(
-        "GEMINI_API_KEY не установлен"
-      );
+      throw new Error("GEMINI_API_KEY не установлен");
     }
 
     console.log("Катя подключается к Gemini Live...");
@@ -727,11 +710,7 @@ wss.on("connection", async ws => {
         },
 
         systemInstruction: {
-          parts: [
-            {
-              text: SYSTEM_PROMPT
-            }
-          ]
+          parts: [{ text: SYSTEM_PROMPT }]
         }
       },
 
@@ -780,8 +759,6 @@ wss.on("connection", async ws => {
       message: "Катя подключена. Можешь говорить."
     });
 
-    // Обрабатываем сообщения, пришедшие во время подключения.
-
     while (pendingMessages.length > 0 && !closed) {
       const data = pendingMessages.shift();
       handleIncomingMessage(data);
@@ -817,6 +794,8 @@ server.listen(PORT, () => {
   console.log("YouTube Music:", YOUTUBE_API_KEY ? "OK" : "НЕ НАСТРОЕН");
   console.log("Голосовой сервер: /live");
   console.log("Текстовый чат: /api/chat");
+  console.log("Основная модель:", CHAT_MODELS[0]);
+  console.log("Резервная модель:", CHAT_MODELS[1]);
   console.log("Музыкальный поиск: /api/music/search");
   console.log("История разговоров: ENABLED");
   console.log("--------------------------------");
