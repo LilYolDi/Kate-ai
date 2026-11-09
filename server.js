@@ -95,7 +95,9 @@ function getErrorMessage(error) {
   return error?.message || "Неизвестная ошибка сервера";
 }
 
-// Нормализация истории.
+// ===============================
+// HISTORY NORMALIZATION
+// ===============================
 
 function cleanHistory(history, maxItems = 20) {
   if (!Array.isArray(history)) {
@@ -143,7 +145,9 @@ function cleanHistory(history, maxItems = 20) {
     .slice(-maxItems);
 }
 
-// Формирование контекста для Gemini Live.
+// ===============================
+// LIVE HISTORY CONTEXT
+// ===============================
 
 function createLiveHistoryContext(history) {
   const messages = cleanHistory(history, 20);
@@ -250,26 +254,26 @@ app.post("/api/music/search", async (req, res) => {
         channelTitle: item.snippet?.channelTitle || ""
       }));
 
-    res.json({ items });
+    return res.json({ items });
 
   } catch (error) {
     console.error("MUSIC SEARCH ERROR:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: getErrorMessage(error)
     });
   }
 });
 
 // ===============================
-// TEXT CHAT
+// TEXT CHAT — GEMINI
 // ===============================
 
 app.post("/api/chat", async (req, res) => {
   try {
     if (!ai) {
       return res.status(503).json({
-        error: "Gemini API не настроен на сервере"
+        error: "Gemini API не настроен на сервере."
       });
     }
 
@@ -279,38 +283,51 @@ app.post("/api/chat", async (req, res) => {
 
     if (!message) {
       return res.status(400).json({
-        error: "Пустое сообщение"
+        error: "Пустое сообщение."
       });
     }
 
     if (message.length > 20000) {
       return res.status(413).json({
-        error: "Сообщение слишком длинное"
+        error: "Сообщение слишком длинное."
       });
     }
 
+    // Получаем предыдущие сообщения разговора.
     const history = cleanHistory(
       req.body?.history,
       20
     );
 
+    // Преобразуем историю в формат Gemini.
     const contents = history.map(item => ({
       role: item.role,
-      parts: [{
-        text: item.text
-      }]
+      parts: [
+        {
+          text: item.text
+        }
+      ]
     }));
 
+    // Добавляем новое сообщение пользователя.
     contents.push({
       role: "user",
-      parts: [{
-        text: message
-      }]
+      parts: [
+        {
+          text: message
+        }
+      ]
     });
+
+    console.log(
+      `TEXT CHAT: получено сообщение, история: ${history.length} сообщений`
+    );
 
     const result = await ai.models.generateContent({
       model: CHAT_MODEL,
+
       contents,
+
       config: {
         systemInstruction: SYSTEM_PROMPT,
         temperature: 0.8,
@@ -318,15 +335,26 @@ app.post("/api/chat", async (req, res) => {
       }
     });
 
-    res.json({
-      reply: result.text ||
-        "Я пока не смогла сформулировать ответ."
+    const reply = String(
+      result.text || ""
+    ).trim();
+
+    if (!reply) {
+      return res.status(502).json({
+        error: "Gemini не вернула текстовый ответ."
+      });
+    }
+
+    console.log("TEXT CHAT: ответ Кати сформирован.");
+
+    return res.json({
+      reply
     });
 
   } catch (error) {
     console.error("CHAT ERROR:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: getErrorMessage(error)
     });
   }
@@ -428,12 +456,16 @@ wss.on("connection", async ws => {
 
         if (context) {
           session.sendClientContent({
-            turns: [{
-              role: "user",
-              parts: [{
-                text: context
-              }]
-            }],
+            turns: [
+              {
+                role: "user",
+                parts: [
+                  {
+                    text: context
+                  }
+                ]
+              }
+            ],
             turnComplete: false
           });
 
@@ -566,9 +598,11 @@ wss.on("connection", async ws => {
         },
 
         systemInstruction: {
-          parts: [{
-            text: SYSTEM_PROMPT
-          }]
+          parts: [
+            {
+              text: SYSTEM_PROMPT
+            }
+          ]
         }
       },
 
