@@ -1,4 +1,3 @@
-
 import express from "express";
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -90,23 +89,56 @@ function getErrorMessage(error) {
   return error?.message || "Неизвестная ошибка сервера";
 }
 
+// Нормализация истории.
+// Поддерживает роли user, model, assistant и katya.
+
 function cleanHistory(history, maxItems = 20) {
   if (!Array.isArray(history)) {
     return [];
   }
 
   return history
-    .filter(item =>
-      item &&
-      ["user", "model"].includes(item.role) &&
-      typeof item.text === "string"
-    )
-    .slice(-maxItems)
-    .map(item => ({
-      role: item.role,
-      text: item.text.slice(0, 5000)
-    }));
+    .filter(item => item && typeof item === "object")
+    .map(item => {
+      const originalRole = String(
+        item.role || item.sender || ""
+      ).toLowerCase();
+
+      let role;
+
+      if (originalRole === "user") {
+        role = "user";
+      } else if (
+        ["model", "assistant", "katya"].includes(originalRole)
+      ) {
+        role = "model";
+      } else {
+        return null;
+      }
+
+      const rawText =
+        typeof item.text === "string"
+          ? item.text
+          : typeof item.content === "string"
+            ? item.content
+            : "";
+
+      const text = rawText.trim();
+
+      if (!text) {
+        return null;
+      }
+
+      return {
+        role,
+        text: text.slice(0, 5000)
+      };
+    })
+    .filter(Boolean)
+    .slice(-maxItems);
 }
+
+// Формирование контекста для Gemini Live.
 
 function createLiveHistoryContext(history) {
   const messages = cleanHistory(history, 20);
@@ -128,7 +160,7 @@ function createLiveHistoryContext(history) {
 Это предыдущая история нашего разговора.
 
 Используй её как контекст и помни, о чём мы говорили.
-Продолжай общение с учётом этой истории.
+Учитывай предыдущие вопросы, ответы, договорённости и информацию обо мне.
 Не пересказывай историю и не отвечай на старые сообщения.
 Просто продолжай разговор с последнего актуального момента.
 
@@ -261,8 +293,14 @@ wss.on("connection", async ws => {
   const pendingMessages = [];
 
   const send = data => {
-    if (ws.readyState === WebSocket.OPEN) {
+    if (ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    try {
       ws.send(JSON.stringify(data));
+    } catch (error) {
+      console.error("BROWSER SEND ERROR:", error);
     }
   };
 
@@ -295,9 +333,12 @@ wss.on("connection", async ws => {
 
   const handleIncomingMessage = data => {
     try {
-      if (!session || closed) return;
+      if (!session || closed || !data || typeof data !== "object") {
+        return;
+      }
 
-      // История сохранённого разговора
+      // История сохранённого разговора.
+
       if (
         (data.type === "history" ||
          data.type === "init") &&
@@ -324,24 +365,39 @@ wss.on("connection", async ws => {
           });
 
           console.log(
-            "История разговора передана Gemini Live"
+            "История разговора передана Gemini Live."
           );
+        } else {
+          send({
+            type: "history_loaded",
+            message: "История разговора пуста."
+          });
         }
 
         return;
       }
 
-      // Входящий текст
-      if (data.type === "text" && data.text) {
+      // Входящий текст.
+
+      if (
+        data.type === "text" &&
+        typeof data.text === "string" &&
+        data.text.trim()
+      ) {
         session.sendRealtimeInput({
-          text: String(data.text).slice(0, 10000)
+          text: data.text.trim().slice(0, 10000)
         });
 
         return;
       }
 
-      // Входящее аудио
-      if (data.type === "audio" && data.data) {
+      // Входящее аудио.
+
+      if (
+        data.type === "audio" &&
+        typeof data.data === "string" &&
+        data.data.length > 0
+      ) {
         session.sendRealtimeInput({
           audio: {
             data: data.data,
@@ -360,10 +416,15 @@ wss.on("connection", async ws => {
     }
   };
 
-  // Слушатель устанавливается до подключения Gemini
+  // Слушатель устанавливается до подключения Gemini.
+
   ws.on("message", raw => {
     try {
       const data = JSON.parse(raw.toString());
+
+      if (!data || typeof data !== "object") {
+        return;
+      }
 
       if (connecting) {
         if (pendingMessages.length < 100) {
@@ -478,7 +539,8 @@ wss.on("connection", async ws => {
       message: "Катя подключена. Можешь говорить."
     });
 
-    // Обрабатываем сообщения, пришедшие во время подключения
+    // Обрабатываем сообщения, пришедшие во время подключения.
+
     while (pendingMessages.length > 0 && !closed) {
       const data = pendingMessages.shift();
       handleIncomingMessage(data);
