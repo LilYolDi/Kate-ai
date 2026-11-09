@@ -23,6 +23,9 @@ const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 const LIVE_MODEL = "gemini-3.8-live";
 const CHAT_MODEL = "gemini-3.8-flash";
 
+const CHAT_MAX_RETRIES = 2;
+const CHAT_RETRY_DELAYS = [1000, 2000];
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static("."));
 
@@ -92,7 +95,77 @@ const SYSTEM_PROMPT = `
 // ===============================
 
 function getErrorMessage(error) {
-  return error?.message || "Неизвестная ошибка сервера";
+  let message =
+    error?.message ||
+    error?.error?.message ||
+    "Неизвестная ошибка сервера";
+
+  if (typeof message !== "string") {
+    return "Неизвестная ошибка сервера";
+  }
+
+  // Иногда SDK возвращает JSON внутри error.message.
+  try {
+    const parsed = JSON.parse(message);
+
+    message =
+      parsed?.error?.message ||
+      parsed?.message ||
+      message;
+  } catch {
+    // Обычное текстовое сообщение.
+  }
+
+  return String(message);
+}
+
+function getErrorStatus(error) {
+  const candidates = [
+    error?.status,
+    error?.code,
+    error?.error?.code
+  ];
+
+  for (const candidate of candidates) {
+    const status = Number(candidate);
+
+    if (
+      Number.isInteger(status) &&
+      status >= 400 &&
+      status <= 599
+    ) {
+      return status;
+    }
+  }
+
+  return 500;
+}
+
+function isTemporaryGeminiError(error) {
+  const status = getErrorStatus(error);
+
+  const errorText = [
+    error?.status,
+    error?.code,
+    error?.message,
+    error?.error?.status,
+    error?.error?.message
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toUpperCase();
+
+  return (
+    [429, 500, 502, 503, 504].includes(status) ||
+    errorText.includes("UNAVAILABLE") ||
+    errorText.includes("RESOURCE_EXHAUSTED") ||
+    errorText.includes("DEADLINE_EXCEEDED") ||
+    errorText.includes("SERVICE UNAVAILABLE")
+  );
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ===============================
@@ -293,13 +366,11 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    // Получаем предыдущие сообщения разговора.
     const history = cleanHistory(
       req.body?.history,
       20
     );
 
-    // Преобразуем историю в формат Gemini.
     const contents = history.map(item => ({
       role: item.role,
       parts: [
@@ -309,7 +380,6 @@ app.post("/api/chat", async (req, res) => {
       ]
     }));
 
-    // Добавляем новое сообщение пользователя.
     contents.push({
       role: "user",
       parts: [
@@ -323,25 +393,84 @@ app.post("/api/chat", async (req, res) => {
       `TEXT CHAT: получено сообщение, история: ${history.length} сообщений`
     );
 
-    const result = await ai.models.generateContent({
-      model: CHAT_MODEL,
+    // Повторяем запрос при временной перегрузке Gemini.
+    let result = null;
+    let lastError = null;
 
-      contents,
+    for (
+      let attempt = 0;
+      attempt <= CHAT_MAX_RETRIES;
+      attempt++
+    ) {
+      try {
+        if (attempt > 0) {
+          const delay = CHAT_RETRY_DELAYS[attempt - 1];
 
-      config: {
-        systemInstruction: SYSTEM_PROMPT,
-        temperature: 0.8,
-        maxOutputTokens: 2048
+          console.warn(
+            `GEMINI CHAT: повторная попытка ${attempt}/${CHAT_MAX_RETRIES} через ${delay} мс`
+          );
+
+          await wait(delay);
+        }
+
+        result = await ai.models.generateContent({
+          model: CHAT_MODEL,
+
+          contents,
+
+          config: {
+            systemInstruction: SYSTEM_PROMPT,
+            temperature: 0.8,
+            maxOutputTokens: 2048
+          }
+        });
+
+        lastError = null;
+        break;
+
+      } catch (error) {
+        lastError = error;
+
+        console.error(
+          `GEMINI CHAT ERROR, попытка ${attempt + 1}:`,
+          getErrorMessage(error)
+        );
+
+        if (
+          !isTemporaryGeminiError(error) ||
+          attempt >= CHAT_MAX_RETRIES
+        ) {
+          break;
+        }
       }
-    });
+    }
+
+    if (lastError) {
+      const status = getErrorStatus(lastError);
+
+      console.error(
+        "CHAT FINAL ERROR:",
+        lastError
+      );
+
+      if (isTemporaryGeminiError(lastError)) {
+        return res.status(503).json({
+          error: "Gemini сейчас перегружена. Не удалось получить ответ после нескольких попыток. Попробуй отправить сообщение немного позже."
+        });
+      }
+
+      return res.status(status).json({
+        error: getErrorMessage(lastError)
+      });
+    }
 
     const reply = String(
-      result.text || ""
+      result?.text || ""
     ).trim();
 
     if (!reply) {
       return res.status(502).json({
-        error: "Gemini не вернула текстовый ответ."
+        error: "Gemini не вернула текстовый ответ. Попробуй отправить сообщение ещё раз."
       });
     }
 
@@ -354,7 +483,7 @@ app.post("/api/chat", async (req, res) => {
   } catch (error) {
     console.error("CHAT ERROR:", error);
 
-    return res.status(500).json({
+    return res.status(getErrorStatus(error)).json({
       error: getErrorMessage(error)
     });
   }
