@@ -62,6 +62,11 @@
         <span>Общение с Катей</span>
       </button>
 
+      <button class="drawer-item" data-drawer-action="music">
+        <span class="drawer-icon">♫</span>
+        <span>Музыка</span>
+      </button>
+
       <div class="drawer-divider"></div>
       <div class="drawer-label">УМНЫЕ УСТРОЙСТВА</div>
 
@@ -155,7 +160,7 @@
 
     </aside>
 
-    <main class="voice-main">
+    <main class="voice-main" id="voiceMain">
 
       <div class="orb-container">
         <div class="orb" id="katyaOrb"></div>
@@ -169,7 +174,66 @@
 
     </main>
 
-    <div class="bottom-controls">
+    <!-- Музыкальный центр -->
+    <section class="music-screen" id="musicScreen" hidden>
+
+      <div class="music-header">
+        <div>
+          <h2>Музыкальный центр</h2>
+          <p>Музыка вместе с Катей ❤️</p>
+        </div>
+        <span class="music-header-icon">♫</span>
+      </div>
+
+      <div class="music-player">
+
+        <div id="youtubePlayerContainer" class="youtube-player-container">
+          <div id="youtubePlayer"></div>
+        </div>
+
+        <div class="music-track-info">
+          <strong id="musicTrackTitle">Музыка не выбрана</strong>
+          <span id="musicTrackStatus">Найди любимую песню</span>
+        </div>
+
+        <div class="music-search">
+          <input
+            type="text"
+            id="musicSearchInput"
+            placeholder="Название песни или исполнитель..."
+            autocomplete="off"
+          >
+          <button id="musicSearchButton" aria-label="Найти музыку">⌕</button>
+        </div>
+
+        <div class="music-controls">
+          <button id="musicPrevious" aria-label="Предыдущий трек">⏮</button>
+          <button id="musicPlayPause" aria-label="Воспроизвести или остановить">▶</button>
+          <button id="musicNext" aria-label="Следующий трек">⏭</button>
+        </div>
+
+        <div class="music-volume">
+          <span>🔈</span>
+          <input
+            type="range"
+            id="musicVolume"
+            min="0"
+            max="100"
+            value="70"
+            aria-label="Громкость"
+          >
+          <span>🔊</span>
+        </div>
+
+        <div class="music-hint">
+          Скажи Кате: «Включи музыку», «Пауза» или «Следующая песня».
+        </div>
+
+      </div>
+
+    </section>
+
+    <div class="bottom-controls" id="bottomControls">
 
       <div class="message-input">
         <button id="addButton" class="add-button" aria-label="Дополнительно">+</button>
@@ -211,6 +275,9 @@
 
   </div>
 
+  <!-- YouTube IFrame Player API -->
+  <script src="https://www.youtube.com/iframe_api"></script>
+
   <script src="app.js"></script>
 
   <script>
@@ -226,6 +293,9 @@
     const smartDevicesToggle = document.getElementById('smartDevicesToggle');
     const smartDeviceOptions = document.getElementById('smartDeviceOptions');
     const smartDevicesArrow = document.getElementById('smartDevicesArrow');
+
+    const voiceMain = document.getElementById('voiceMain');
+    const musicScreen = document.getElementById('musicScreen');
 
     function openKatyaMenu() {
       sideMenu.classList.add('menu-open');
@@ -255,6 +325,24 @@
       smartDeviceOptions.hidden = isOpen;
       smartDevicesToggle.setAttribute('aria-expanded', String(!isOpen));
       smartDevicesArrow.textContent = isOpen ? '⌄' : '⌃';
+    }
+
+    function showKatyaMusic() {
+      voiceMain.hidden = true;
+      musicScreen.hidden = false;
+
+      document.querySelectorAll('.drawer-item[data-drawer-action]').forEach(function(item) {
+        item.classList.toggle('active', item.dataset.drawerAction === 'music');
+      });
+    }
+
+    function showKatyaHome() {
+      musicScreen.hidden = true;
+      voiceMain.hidden = false;
+
+      document.querySelectorAll('.drawer-item[data-drawer-action]').forEach(function(item) {
+        item.classList.toggle('active', item.dataset.drawerAction === 'home');
+      });
     }
 
     function applyTheme(theme) {
@@ -328,10 +416,20 @@
         const action = item.dataset.drawerAction;
 
         if (action === 'chat') {
+          showKatyaHome();
           document.getElementById('message').focus();
         }
 
+        if (action === 'home') {
+          showKatyaHome();
+        }
+
+        if (action === 'music') {
+          showKatyaMusic();
+        }
+
         if (action === 'history') {
+          showKatyaHome();
           const chat = document.getElementById('chat');
           chat.scrollTop = chat.scrollHeight;
         }
