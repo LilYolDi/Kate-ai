@@ -1,3 +1,4 @@
+
 import express from "express";
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -17,6 +18,7 @@ const wss = new WebSocketServer({
 
 const PORT = process.env.PORT || 10000;
 const API_KEY = process.env.GEMINI_API_KEY;
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 
 const LIVE_MODEL = "gemini-3.8-live";
 const CHAT_MODEL = "gemini-3.8-flash";
@@ -26,6 +28,10 @@ app.use(express.static("."));
 
 if (!API_KEY) {
   console.error("GEMINI_API_KEY не задан!");
+}
+
+if (!YOUTUBE_API_KEY) {
+  console.warn("YOUTUBE_API_KEY не задан. Музыкальный поиск отключён.");
 }
 
 const ai = API_KEY
@@ -90,7 +96,6 @@ function getErrorMessage(error) {
 }
 
 // Нормализация истории.
-// Поддерживает роли user, model, assistant и katya.
 
 function cleanHistory(history, maxItems = 20) {
   if (!Array.isArray(history)) {
@@ -179,8 +184,81 @@ app.get("/health", (req, res) => {
     assistant: "Katya AI",
     chat: Boolean(ai),
     voice: Boolean(ai),
+    music: Boolean(YOUTUBE_API_KEY),
     connections: wss.clients.size
   });
+});
+
+// ===============================
+// YOUTUBE MUSIC SEARCH
+// ===============================
+
+app.post("/api/music/search", async (req, res) => {
+  try {
+    if (!YOUTUBE_API_KEY) {
+      return res.status(503).json({
+        error: "Музыкальный поиск не настроен. Добавь YOUTUBE_API_KEY в настройки сервера."
+      });
+    }
+
+    const query = String(
+      req.body?.query || ""
+    ).trim();
+
+    if (!query) {
+      return res.status(400).json({
+        error: "Укажи название песни или исполнителя."
+      });
+    }
+
+    if (query.length > 200) {
+      return res.status(400).json({
+        error: "Слишком длинный поисковый запрос."
+      });
+    }
+
+    const params = new URLSearchParams({
+      part: "snippet",
+      type: "video",
+      videoEmbeddable: "true",
+      maxResults: "10",
+      q: query,
+      key: YOUTUBE_API_KEY
+    });
+
+    const response = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?${params}`
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("YOUTUBE API ERROR:", data);
+
+      return res.status(response.status).json({
+        error:
+          data?.error?.message ||
+          "Не удалось выполнить поиск музыки."
+      });
+    }
+
+    const items = (data.items || [])
+      .filter(item => item?.id?.videoId)
+      .map(item => ({
+        videoId: item.id.videoId,
+        title: item.snippet?.title || "Без названия",
+        channelTitle: item.snippet?.channelTitle || ""
+      }));
+
+    res.json({ items });
+
+  } catch (error) {
+    console.error("MUSIC SEARCH ERROR:", error);
+
+    res.status(500).json({
+      error: getErrorMessage(error)
+    });
+  }
 });
 
 // ===============================
@@ -573,8 +651,10 @@ server.listen(PORT, () => {
   console.log("KATYA AI ЗАПУЩЕНА");
   console.log("Порт:", PORT);
   console.log("Gemini API:", API_KEY ? "OK" : "НЕ НАСТРОЕН");
+  console.log("YouTube Music:", YOUTUBE_API_KEY ? "OK" : "НЕ НАСТРОЕН");
   console.log("Голосовой сервер: /live");
   console.log("Текстовый чат: /api/chat");
+  console.log("Музыкальный поиск: /api/music/search");
   console.log("История разговоров: ENABLED");
   console.log("--------------------------------");
 });
