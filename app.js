@@ -66,6 +66,570 @@ let katyaActiveConversationId = null;
 let katyaWaitingForTitle = false;
 
 // =====================================================
+// МУЗЫКА — YOUTUBE
+// =====================================================
+
+let youtubePlayer = null;
+let youtubePlayerReady = false;
+let youtubeQueue = [];
+let youtubeCurrentIndex = -1;
+let youtubeSearching = false;
+let youtubeLastSearch = "";
+
+const MUSIC_SEARCH_ENDPOINT = "/api/music/search";
+
+const musicElements = {
+  screen: document.getElementById("musicScreen"),
+  title: document.getElementById("musicTrackTitle"),
+  status: document.getElementById("musicTrackStatus"),
+  search: document.getElementById("musicSearchInput"),
+  searchButton: document.getElementById("musicSearchButton"),
+  playPause: document.getElementById("musicPlayPause"),
+  previous: document.getElementById("musicPrevious"),
+  next: document.getElementById("musicNext"),
+  volume: document.getElementById("musicVolume")
+};
+
+function musicStatus(text) {
+  if (musicElements.status) {
+    musicElements.status.textContent = text;
+  }
+}
+
+function musicTitle(text) {
+  if (musicElements.title) {
+    musicElements.title.textContent = text;
+  }
+}
+
+function openMusicScreen() {
+  if (typeof showKatyaMusic === "function") {
+    showKatyaMusic();
+  }
+
+  if (typeof closeKatyaMenu === "function") {
+    closeKatyaMenu();
+  }
+}
+
+function initializeYouTubePlayer() {
+  if (youtubePlayerReady || !window.YT || !window.YT.Player) {
+    return;
+  }
+
+  const container = document.getElementById("youtubePlayer");
+
+  if (!container) return;
+
+  try {
+    youtubePlayer = new YT.Player("youtubePlayer", {
+      width: "100%",
+      height: "220",
+      videoId: "",
+      playerVars: {
+        autoplay: 0,
+        controls: 1,
+        playsinline: 1,
+        rel: 0,
+        modestbranding: 1
+      },
+
+      events: {
+        onReady: function(event) {
+          youtubePlayerReady = true;
+
+          event.target.setVolume(
+            Number(musicElements.volume?.value || 70)
+          );
+
+          musicStatus("Плеер готов. Найди любимую песню ❤️");
+        },
+
+        onStateChange: function(event) {
+          if (!window.YT) return;
+
+          if (event.data === YT.PlayerState.PLAYING) {
+            updateMusicPlayButton(true);
+            musicStatus("Сейчас играет ❤️");
+          }
+
+          if (event.data === YT.PlayerState.PAUSED) {
+            updateMusicPlayButton(false);
+            musicStatus("Музыка на паузе");
+          }
+
+          if (event.data === YT.PlayerState.ENDED) {
+            playNextMusic();
+          }
+
+          if (event.data === YT.PlayerState.BUFFERING) {
+            musicStatus("Загрузка музыки...");
+          }
+        },
+
+        onError: function(event) {
+          console.error("YouTube Player Error:", event.data);
+          musicStatus("Не удалось воспроизвести видео.");
+          updateMusicPlayButton(false);
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Ошибка создания YouTube Player:", error);
+    musicStatus("Не удалось загрузить музыкальный плеер.");
+  }
+}
+
+window.onYouTubeIframeAPIReady = function() {
+  initializeYouTubePlayer();
+};
+
+// Если API загрузился раньше app.js.
+if (window.YT && window.YT.Player) {
+  initializeYouTubePlayer();
+}
+
+function updateMusicPlayButton(playing) {
+  if (!musicElements.playPause) return;
+
+  musicElements.playPause.textContent = playing ? "⏸" : "▶";
+
+  musicElements.playPause.setAttribute(
+    "aria-label",
+    playing ? "Пауза" : "Воспроизвести"
+  );
+}
+
+function playMusicByIndex(index) {
+  if (!youtubeQueue.length) {
+    musicStatus("Сначала найди музыку.");
+    return;
+  }
+
+  if (!youtubePlayerReady || !youtubePlayer) {
+    musicStatus("Музыкальный плеер ещё загружается.");
+    return;
+  }
+
+  if (index < 0) {
+    index = youtubeQueue.length - 1;
+  }
+
+  if (index >= youtubeQueue.length) {
+    index = 0;
+  }
+
+  youtubeCurrentIndex = index;
+
+  const track = youtubeQueue[index];
+
+  if (!track || !track.videoId) return;
+
+  musicTitle(track.title || "Неизвестная песня");
+  musicStatus("Загрузка музыки...");
+
+  openMusicScreen();
+
+  try {
+    youtubePlayer.loadVideoById(track.videoId);
+    youtubePlayer.setVolume(
+      Number(musicElements.volume?.value || 70)
+    );
+
+    updateMusicPlayButton(true);
+  } catch (error) {
+    console.error("Ошибка воспроизведения:", error);
+    musicStatus("Не удалось включить песню.");
+  }
+}
+
+async function searchKatyaMusic(query) {
+  query = String(query || "").trim();
+
+  if (!query || youtubeSearching) return;
+
+  youtubeSearching = true;
+  youtubeLastSearch = query;
+
+  openMusicScreen();
+
+  musicTitle("Поиск музыки...");
+  musicStatus("Ищу: " + query);
+
+  if (musicElements.search) {
+    musicElements.search.value = query;
+  }
+
+  try {
+    const response = await fetch(MUSIC_SEARCH_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        query: query,
+        maxResults: 10
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Ошибка поиска музыки");
+    }
+
+    const items = Array.isArray(data.items)
+      ? data.items
+      : [];
+
+    youtubeQueue = items.filter(item =>
+      item &&
+      item.videoId &&
+      typeof item.videoId === "string"
+    );
+
+    youtubeCurrentIndex = -1;
+
+    if (!youtubeQueue.length) {
+      musicTitle("Ничего не найдено");
+      musicStatus("Попробуй другое название песни.");
+      return;
+    }
+
+    musicStatus(
+      "Найдено песен: " + youtubeQueue.length
+    );
+
+    playMusicByIndex(0);
+
+    addMessage(
+      "Я нашла музыку по запросу «" + query + "». Включаю! ❤️",
+      "katya"
+    );
+
+  } catch (error) {
+    console.error("MUSIC SEARCH ERROR:", error);
+
+    musicTitle("Ошибка поиска");
+    musicStatus(error.message);
+
+    addMessage(
+      "Не удалось найти музыку. Проверь подключение музыкального поиска.",
+      "katya"
+    );
+
+  } finally {
+    youtubeSearching = false;
+  }
+}
+
+function toggleKatyaMusic() {
+  if (!youtubePlayerReady || !youtubePlayer) {
+    musicStatus("Плеер ещё загружается.");
+    return;
+  }
+
+  try {
+    const state = youtubePlayer.getPlayerState();
+
+    if (state === YT.PlayerState.PLAYING) {
+      youtubePlayer.pauseVideo();
+      updateMusicPlayButton(false);
+    } else {
+      if (youtubeCurrentIndex === -1 && youtubeQueue.length) {
+        playMusicByIndex(0);
+      } else {
+        youtubePlayer.playVideo();
+        updateMusicPlayButton(true);
+      }
+    }
+  } catch (error) {
+    console.error("Ошибка управления музыкой:", error);
+  }
+}
+
+function pauseKatyaMusic() {
+  if (!youtubePlayerReady || !youtubePlayer) return;
+
+  youtubePlayer.pauseVideo();
+  updateMusicPlayButton(false);
+  musicStatus("Музыка остановлена на паузе.");
+}
+
+function resumeKatyaMusic() {
+  if (!youtubePlayerReady || !youtubePlayer) {
+    musicStatus("Плеер ещё загружается.");
+    return;
+  }
+
+  if (youtubeCurrentIndex === -1 && youtubeQueue.length) {
+    playMusicByIndex(0);
+    return;
+  }
+
+  youtubePlayer.playVideo();
+  updateMusicPlayButton(true);
+}
+
+function playNextMusic() {
+  if (!youtubeQueue.length) {
+    musicStatus("Сначала найди музыку.");
+    return;
+  }
+
+  playMusicByIndex(youtubeCurrentIndex + 1);
+}
+
+function playPreviousMusic() {
+  if (!youtubeQueue.length) {
+    musicStatus("Сначала найди музыку.");
+    return;
+  }
+
+  playMusicByIndex(youtubeCurrentIndex - 1);
+}
+
+function changeKatyaMusicVolume(direction) {
+  if (!youtubePlayerReady || !youtubePlayer) return;
+
+  let volume = Number(
+    musicElements.volume?.value || 70
+  );
+
+  volume += direction === "up" ? 10 : -10;
+
+  volume = Math.max(0, Math.min(100, volume));
+
+  youtubePlayer.setVolume(volume);
+
+  if (musicElements.volume) {
+    musicElements.volume.value = volume;
+  }
+
+  musicStatus("Громкость: " + volume + "%");
+}
+
+function stopKatyaMusic() {
+  if (!youtubePlayerReady || !youtubePlayer) return;
+
+  youtubePlayer.stopVideo();
+
+  updateMusicPlayButton(false);
+
+  musicTitle("Музыка выключена");
+  musicStatus("Скажи, если захочешь послушать ещё. ❤️");
+}
+
+// =====================================================
+// ГОЛОСОВЫЕ КОМАНДЫ МУЗЫКИ
+// =====================================================
+
+function detectMusicCommand(text) {
+  const normalized = normalizeCommandText(text);
+
+  if (!normalized) return null;
+
+  // Выключение музыки.
+  if (
+    /^(катя )?(выключи|останови|закончи) музыку$/.test(normalized) ||
+    /^(катя )?(выключи|останови) плеер$/.test(normalized)
+  ) {
+    return { action: "stop" };
+  }
+
+  // Пауза.
+  if (
+    /^(катя )?(пауза|поставь на паузу|приостанови музыку|останови песню)$/.test(normalized)
+  ) {
+    return { action: "pause" };
+  }
+
+  // Продолжение.
+  if (
+    /^(катя )?(продолжи|возобнови|продолжай) (музыку|воспроизведение)$/.test(normalized) ||
+    /^(катя )?(продолжай|играй дальше)$/.test(normalized)
+  ) {
+    return { action: "resume" };
+  }
+
+  // Следующая песня.
+  if (
+    /^(катя )?(следующая|следующий|дальше|переключи песню)$/.test(normalized) ||
+    /^(катя )?(включи следующую песню|следующий трек)$/.test(normalized)
+  ) {
+    return { action: "next" };
+  }
+
+  // Предыдущая песня.
+  if (
+    /^(катя )?(предыдущая песня|предыдущий трек|верни предыдущую песню)$/.test(normalized)
+  ) {
+    return { action: "previous" };
+  }
+
+  // Громкость.
+  if (
+    /^(катя )?(сделай )?(музыку )?(громче|погромче)$/.test(normalized) ||
+    /^(катя )?увеличь громкость$/.test(normalized)
+  ) {
+    return { action: "volumeUp" };
+  }
+
+  if (
+    /^(катя )?(сделай )?(музыку )?(тише|потише)$/.test(normalized) ||
+    /^(катя )?уменьши громкость$/.test(normalized)
+  ) {
+    return { action: "volumeDown" };
+  }
+
+  // Включить музыку без названия.
+  if (
+    /^(катя )?(включи|запусти|поставь|найди) музыку$/.test(normalized) ||
+    /^(катя )?хочу послушать музыку$/.test(normalized)
+  ) {
+    return { action: "open" };
+  }
+
+  // Поиск конкретной песни или исполнителя.
+  const searchPatterns = [
+    /^(?:катя )?(?:включи|поставь|найди|запусти|сыграй) песню (.+)$/,
+    /^(?:катя )?(?:включи|поставь|найди|запусти|сыграй) музыку (?:исполнителя )?(.+)$/,
+    /^(?:катя )?(?:включи|поставь|найди|запусти|сыграй) (.+)$/,
+    /^(?:катя )?хочу послушать (.+)$/
+  ];
+
+  for (const pattern of searchPatterns) {
+    const match = normalized.match(pattern);
+
+    if (match && match[1]) {
+      const query = match[1].trim();
+
+      if (
+        query &&
+        !["музыку", "песню", "музыка"].includes(query)
+      ) {
+        return {
+          action: "search",
+          query: query
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function handleMusicCommand(text) {
+  const command = detectMusicCommand(text);
+
+  if (!command) return false;
+
+  openMusicScreen();
+
+  switch (command.action) {
+    case "open":
+      if (youtubeCurrentIndex >= 0 && youtubePlayerReady) {
+        resumeKatyaMusic();
+      } else {
+        musicStatus("Назови песню или исполнителя. ❤️");
+      }
+
+      addMessage("Конечно! Давай послушаем музыку. ❤️", "katya");
+      break;
+
+    case "search":
+      searchKatyaMusic(command.query);
+      break;
+
+    case "pause":
+      pauseKatyaMusic();
+      addMessage("Хорошо, поставила музыку на паузу. ❤️", "katya");
+      break;
+
+    case "resume":
+      resumeKatyaMusic();
+      addMessage("Продолжаем слушать! ❤️", "katya");
+      break;
+
+    case "next":
+      playNextMusic();
+      addMessage("Включаю следующую песню. ❤️", "katya");
+      break;
+
+    case "previous":
+      playPreviousMusic();
+      addMessage("Возвращаю предыдущую песню. ❤️", "katya");
+      break;
+
+    case "volumeUp":
+      changeKatyaMusicVolume("up");
+      addMessage("Делаю музыку громче. ❤️", "katya");
+      break;
+
+    case "volumeDown":
+      changeKatyaMusicVolume("down");
+      addMessage("Делаю музыку тише. ❤️", "katya");
+      break;
+
+    case "stop":
+      stopKatyaMusic();
+      addMessage("Хорошо, выключила музыку. ❤️", "katya");
+      break;
+  }
+
+  return true;
+}
+
+// =====================================================
+// КНОПКИ МУЗЫКАЛЬНОГО ЦЕНТРА
+// =====================================================
+
+if (musicElements.searchButton) {
+  musicElements.searchButton.addEventListener("click", () => {
+    searchKatyaMusic(musicElements.search?.value || "");
+  });
+}
+
+if (musicElements.search) {
+  musicElements.search.addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+      searchKatyaMusic(musicElements.search.value);
+    }
+  });
+}
+
+if (musicElements.playPause) {
+  musicElements.playPause.addEventListener(
+    "click",
+    toggleKatyaMusic
+  );
+}
+
+if (musicElements.previous) {
+  musicElements.previous.addEventListener(
+    "click",
+    playPreviousMusic
+  );
+}
+
+if (musicElements.next) {
+  musicElements.next.addEventListener(
+    "click",
+    playNextMusic
+  );
+}
+
+if (musicElements.volume) {
+  musicElements.volume.addEventListener("input", () => {
+    const volume = Number(musicElements.volume.value);
+
+    if (youtubePlayerReady && youtubePlayer) {
+      youtubePlayer.setVolume(volume);
+    }
+  });
+}
+
+// =====================================================
 // УСТРОЙСТВО
 // =====================================================
 
@@ -872,6 +1436,9 @@ function finishInputTranscription() {
 
   recordKatyaMessage("user", recognizedText);
 
+  // Сначала проверяем музыкальные команды.
+  if (handleMusicCommand(recognizedText)) return;
+
   const appKey = detectAppCommand(recognizedText);
 
   if (appKey) showAppLaunchButton(appKey);
@@ -1579,9 +2146,6 @@ async function startVoiceMode() {
 
       console.log("Соединение с сервером установлено");
 
-      // Передаём сохранённую историю серверу.
-      // server.js должен поддерживать type: "history".
-
       const previousHistory = getKatyaHistoryForAI();
 
       if (previousHistory.length) {
@@ -1704,14 +2268,12 @@ async function sendTextMessage() {
 
   messageInput.value = "";
 
-  // Катя ожидает название разговора.
   if (katyaWaitingForTitle) {
     katyaWaitingForTitle = false;
     saveKatyaConversation(message);
     return;
   }
 
-  // Команда сохранения разговора.
   if (handleKatyaSaveCommand(message)) {
     addMessage(message, "user");
     return;
@@ -1720,6 +2282,11 @@ async function sendTextMessage() {
   addMessage(message, "user");
 
   recordKatyaMessage("user", message);
+
+  // Музыкальные команды обрабатываются локально.
+  if (handleMusicCommand(message)) {
+    return;
+  }
 
   const appKey = detectAppCommand(message);
 
@@ -1845,6 +2412,9 @@ window.addEventListener("focus", () => {
 window.addEventListener("load", () => {
   setTimeout(() => {
     startWakeWordListening();
+
+    // Проверяем, готов ли YouTube API.
+    initializeYouTubePlayer();
   }, 1000);
 });
 
@@ -1868,7 +2438,7 @@ window.addEventListener("beforeunload", () => {
 // ОБРАБОТКА ГОЛОСОВЫХ КОМАНД ИСТОРИИ
 // =====================================================
 
-// finishInputTranscription уже записывает голосовые сообщения
+// finishInputTranscription записывает голосовые сообщения
 // и обрабатывает команды сохранения разговоров.
 
 // =====================================================
