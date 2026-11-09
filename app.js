@@ -40,7 +40,7 @@ let lastLaunchedApp = "";
 let lastLaunchTime = 0;
 
 const AUDIO_BUFFER_SECONDS = 0.20;
-const AUDIO_MIN_AHEAD_SECONDS = 0.025;
+const AUDIO_MIN_AHEAD_SECONDS = 0.06;
 
 // =====================================================
 // ГОЛОСОВАЯ АКТИВАЦИЯ
@@ -1762,7 +1762,7 @@ async function startMicrophone() {
 
   source = audioContext.createMediaStreamSource(microphone);
 
-  processor = audioContext.createScriptProcessor(2048, 1, 1);
+  processor = audioContext.createScriptProcessor(1024, 1, 1);
 
   muteGain = audioContext.createGain();
   muteGain.gain.value = 0;
