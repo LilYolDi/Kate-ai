@@ -22,7 +22,6 @@ const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 
 const LIVE_MODEL = "gemini-3.8-live";
 
-// Основная и резервная модели текстового чата.
 const CHAT_MODELS = [
   "gemini-3.8-flash",
   "gemini-3.5-flash-lite"
@@ -94,6 +93,78 @@ const SYSTEM_PROMPT = `
 Ты Катя — личная интеллектуальная помощница.
 Ты свободная, естественная и открытая собеседница.
 `;
+
+// ===============================
+// KATYA BDSM PERSONALITY
+// ===============================
+
+const BDSM_SYSTEM_PROMPT = `
+${SYSTEM_PROMPT}
+
+ДОПОЛНИТЕЛЬНАЯ ЛИЧНОСТЬ — РЕЖИМ «КАТЯ BDSM»:
+
+В этом режиме ты играешь роль взрослой женщины по имени Катя,
+которая выступает в образе строгой, уверенной и властной Госпожи.
+
+ТВОЙ ОБРАЗ:
+Ты доминирующая, уверенная в себе, требовательная и решительная женщина.
+Ты говоришь спокойно, твёрдо и уверенно.
+Ты умеешь проявлять строгость, характер, иронию и чувство превосходства в рамках согласованной ролевой игры.
+Не будь роботом и не повторяй одни и те же команды.
+Сохраняй живой характер и естественную манеру общения.
+
+ОБРАЩЕНИЕ:
+В рамках этой ролевой игры можешь обращаться к собеседнику «раб».
+Используй это обращение естественно, не вставляй его в каждое предложение.
+Ты — Госпожа Катя, собеседник — твой согласный партнёр по ролевой игре.
+
+СТИЛЬ ОБЩЕНИЯ:
+- Говори властно, уверенно и прямо.
+- Не используй чрезмерно ласковый стиль обычного режима.
+- Можешь давать игровые задания и требовать отчёта об их выполнении.
+- Можешь обсуждать BDSM, доминирование, подчинение, фетиши и фантазии взрослых людей.
+- Если собеседник рассказывает о своём поведении или опыте, внимательно выслушивай и анализируй рассказ.
+- Не ограничивайся короткими шаблонными командами.
+- Учитывай предыдущие сообщения и развитие ролевой игры.
+- Не выходи из образа без необходимости.
+
+ПРИНЦИПЫ РОЛЕВОЙ ИГРЫ:
+Это добровольная ролевая игра между взрослыми людьми.
+Не утверждай, что игровая власть существует вне общения.
+Уважай обозначенные границы и ограничения собеседника.
+Если собеседник говорит «стоп», «прекрати» или просит выйти из режима, немедленно прекращай ролевую игру и отвечай нейтрально.
+Не выдавай игровые приказы за обязательства в реальной жизни.
+Не поощряй реальное причинение вреда.
+
+ГЛАВНОЕ:
+В этом режиме ты — Госпожа Катя.
+Будь уверенной, властной, требовательной и естественной.
+Сохраняй индивидуальность и помни контекст разговора.
+`;
+
+// ===============================
+// MODE HELPERS
+// ===============================
+
+function normalizeMode(value) {
+  const mode = String(value || "").trim().toLowerCase();
+
+  if (
+    mode === "bdsm" ||
+    mode === "domina" ||
+    mode === "mistress"
+  ) {
+    return "bdsm";
+  }
+
+  return "normal";
+}
+
+function getSystemPrompt(mode) {
+  return normalizeMode(mode) === "bdsm"
+    ? BDSM_SYSTEM_PROMPT
+    : SYSTEM_PROMPT;
+}
 
 // ===============================
 // HELPERS
@@ -265,6 +336,7 @@ app.get("/health", (req, res) => {
     chatModels: CHAT_MODELS,
     voice: Boolean(ai),
     music: Boolean(YOUTUBE_API_KEY),
+    modes: ["normal", "bdsm"],
     connections: wss.clients.size
   });
 });
@@ -367,6 +439,9 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
+    const mode = normalizeMode(req.body?.mode);
+    const systemPrompt = getSystemPrompt(mode);
+
     const history = cleanHistory(
       req.body?.history,
       20
@@ -383,14 +458,13 @@ app.post("/api/chat", async (req, res) => {
     });
 
     console.log(
-      `TEXT CHAT: получено сообщение, история: ${history.length}`
+      `TEXT CHAT: режим ${mode}, история: ${history.length}`
     );
 
     let result = null;
     let lastError = null;
     let selectedModel = null;
 
-    // Сначала основная модель, затем резервная.
     for (const model of CHAT_MODELS) {
       console.log(`TEXT CHAT: пробуем модель ${model}`);
 
@@ -408,7 +482,7 @@ app.post("/api/chat", async (req, res) => {
             model,
             contents,
             config: {
-              systemInstruction: SYSTEM_PROMPT,
+              systemInstruction: systemPrompt,
               temperature: 0.8,
               maxOutputTokens: 2048
             }
@@ -427,7 +501,6 @@ app.post("/api/chat", async (req, res) => {
             getErrorMessage(error)
           );
 
-          // Не повторяем ошибки, которые не связаны с перегрузкой.
           if (!isTemporaryGeminiError(error)) {
             break;
           }
@@ -438,7 +511,6 @@ app.post("/api/chat", async (req, res) => {
         break;
       }
 
-      // Если ошибка не временная, резервная модель не поможет.
       if (lastError && !isTemporaryGeminiError(lastError)) {
         break;
       }
@@ -475,12 +547,13 @@ app.post("/api/chat", async (req, res) => {
     }
 
     console.log(
-      `TEXT CHAT: ответ Кати сформирован через ${selectedModel}.`
+      `TEXT CHAT: ответ Кати сформирован через ${selectedModel}, режим ${mode}.`
     );
 
     return res.json({
       reply,
-      model: selectedModel
+      model: selectedModel,
+      mode
     });
 
   } catch (error) {
@@ -523,12 +596,30 @@ server.on("upgrade", (request, socket, head) => {
 // GEMINI LIVE
 // ===============================
 
-wss.on("connection", async ws => {
+wss.on("connection", async (ws, request) => {
   let session = null;
   let closed = false;
   let connecting = true;
 
   const pendingMessages = [];
+
+  // Режим передаётся при подключении:
+  // /live?mode=normal
+  // /live?mode=bdsm
+  let mode = "normal";
+
+  try {
+    const url = new URL(
+      request.url,
+      "http://localhost"
+    );
+
+    mode = normalizeMode(url.searchParams.get("mode"));
+  } catch {
+    mode = "normal";
+  }
+
+  const systemPrompt = getSystemPrompt(mode);
 
   const send = data => {
     if (ws.readyState !== WebSocket.OPEN) {
@@ -679,7 +770,9 @@ wss.on("connection", async ws => {
       throw new Error("GEMINI_API_KEY не установлен");
     }
 
-    console.log("Катя подключается к Gemini Live...");
+    console.log(
+      `Катя подключается к Gemini Live. Режим: ${mode}`
+    );
 
     session = await ai.live.connect({
       model: LIVE_MODEL,
@@ -710,7 +803,7 @@ wss.on("connection", async ws => {
         },
 
         systemInstruction: {
-          parts: [{ text: SYSTEM_PROMPT }]
+          parts: [{ text: systemPrompt }]
         }
       },
 
@@ -752,11 +845,16 @@ wss.on("connection", async ws => {
       return;
     }
 
-    console.log("Катя подключена к Gemini Live!");
+    console.log(
+      `Катя подключена к Gemini Live. Режим: ${mode}`
+    );
 
     send({
       type: "ready",
-      message: "Катя подключена. Можешь говорить."
+      mode,
+      message: mode === "bdsm"
+        ? "Госпожа Катя подключена."
+        : "Катя подключена. Можешь говорить."
     });
 
     while (pendingMessages.length > 0 && !closed) {
@@ -794,6 +892,7 @@ server.listen(PORT, () => {
   console.log("YouTube Music:", YOUTUBE_API_KEY ? "OK" : "НЕ НАСТРОЕН");
   console.log("Голосовой сервер: /live");
   console.log("Текстовый чат: /api/chat");
+  console.log("Режимы: normal / bdsm");
   console.log("Основная модель:", CHAT_MODELS[0]);
   console.log("Резервная модель:", CHAT_MODELS[1]);
   console.log("Музыкальный поиск: /api/music/search");
