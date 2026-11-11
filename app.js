@@ -43,6 +43,142 @@ const AUDIO_BUFFER_SECONDS = 0.20;
 const AUDIO_MIN_AHEAD_SECONDS = 0.06;
 
 // =====================================================
+// РЕЖИМЫ КАТИ
+// =====================================================
+
+const KATYA_MODE_STORAGE_KEY = "katya_ai_mode_v1";
+
+function normalizeKatyaMode(value) {
+  return value === "bdsm" ? "bdsm" : "normal";
+}
+
+let katyaMode = normalizeKatyaMode(
+  localStorage.getItem(KATYA_MODE_STORAGE_KEY)
+);
+
+function saveKatyaMode() {
+  try {
+    localStorage.setItem(KATYA_MODE_STORAGE_KEY, katyaMode);
+  } catch (error) {
+    console.warn("Не удалось сохранить режим Кати:", error);
+  }
+}
+
+function createKatyaModeSwitcher() {
+  if (document.getElementById("katyaModeSwitcher")) return;
+
+  const style = document.createElement("style");
+
+  style.textContent = `
+    #katyaModeSwitcher {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 99990;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px;
+      border-radius: 30px;
+      background: rgba(25, 18, 29, .96);
+      border: 1px solid rgba(255,255,255,.15);
+      box-shadow: 0 4px 18px rgba(0,0,0,.3);
+      backdrop-filter: blur(12px);
+      max-width: calc(100vw - 20px);
+    }
+
+    #katyaModeSwitcher button {
+      border: none;
+      border-radius: 24px;
+      padding: 9px 13px;
+      background: transparent;
+      color: #ddd;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    #katyaModeSwitcher button.active {
+      background: linear-gradient(135deg, #ff75b5, #e83e91);
+      color: white;
+    }
+
+    #katyaModeSwitcher button.active.b bdsm {
+      background: linear-gradient(135deg, #9b174b, #e00055);
+    }
+  `;
+
+  document.head.appendChild(style);
+
+  const switcher = document.createElement("div");
+  switcher.id = "katyaModeSwitcher";
+
+  switcher.innerHTML = `
+    <button type="button" data-mode="normal">
+      ❤️ Обычная Катя
+    </button>
+    <button type="button" data-mode="bdsm">
+      👠 Катя BDSM
+    </button>
+  `;
+
+  document.body.appendChild(switcher);
+
+  switcher.querySelectorAll("button").forEach(button => {
+    button.addEventListener("click", () => {
+      changeKatyaMode(button.dataset.mode);
+    });
+  });
+
+  updateKatyaModeSwitcher();
+}
+
+function updateKatyaModeSwitcher() {
+  const switcher = document.getElementById("katyaModeSwitcher");
+  if (!switcher) return;
+
+  switcher.querySelectorAll("button").forEach(button => {
+    button.classList.toggle(
+      "active",
+      button.dataset.mode === katyaMode
+    );
+  });
+}
+
+function changeKatyaMode(newMode) {
+  newMode = normalizeKatyaMode(newMode);
+
+  if (newMode === katyaMode) return;
+
+  const wasVoiceActive = voiceActive || voiceStarting;
+
+  katyaMode = newMode;
+  saveKatyaMode();
+  updateKatyaModeSwitcher();
+
+  addMessage(
+    katyaMode === "bdsm"
+      ? "Режим изменён. Теперь я Госпожа Катя. 👠"
+      : "Режим изменён. Я снова обычная Катя. ❤️",
+    "katya"
+  );
+
+  if (wasVoiceActive) {
+    stopVoiceMode();
+
+    wakeEnabled = false;
+
+    setTimeout(() => {
+      if (katyaMode === newMode) {
+        startVoiceMode();
+      }
+    }, 400);
+  }
+}
+
+// =====================================================
 // ГОЛОСОВАЯ АКТИВАЦИЯ
 // =====================================================
 
