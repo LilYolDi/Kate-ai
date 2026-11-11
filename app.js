@@ -2268,8 +2268,8 @@ async function startVoiceMode() {
       : "ws:";
 
     const newSocket = new WebSocket(
-      `${protocol}//${location.host}/live`
-    );
+  `${protocol}//${location.host}/live?mode=${encodeURIComponent(katyaMode)}`
+);
 
     socket = newSocket;
 
@@ -2457,11 +2457,10 @@ async function sendTextMessage() {
       },
 
       body: JSON.stringify({
-        message: message,
-
-        // Передаём предыдущие сообщения Gemini.
-        history: previousHistory.slice(-40)
-      })
+  message: message,
+  mode: katyaMode,
+  history: previousHistory.slice(-40)
+})
     });
 
     let data;
@@ -2647,6 +2646,7 @@ window.addEventListener("beforeunload", () => {
 
 function initializeKatyaHistory() {
   createKatyaHistoryInterface();
+  createKatyaModeSwitcher();
 }
 
 if (document.readyState === "loading") {
