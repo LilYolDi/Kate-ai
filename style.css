@@ -1291,3 +1291,18 @@ body[data-theme="dark"] .send-button {
   color: #ffffff;
   border-color: #777080;
 }
+
+
+
+/* Левое меню поверх переключателя режимов */
+#menu,
+.sidebar,
+.side-menu,
+.menu-overlay {
+    z-index: 10000 !important;
+}
+
+/* Переключатель режимов под меню */
+.katya-mode-switcher {
+    z-index: 1 !important;
+}
