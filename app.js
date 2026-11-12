@@ -80,7 +80,7 @@ function createKatyaModeSwitcher() {
   style.textContent = `
     #katyaModeSwitcher {
       position: fixed;
-      top: 12px;
+      top: 50px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 99990;
