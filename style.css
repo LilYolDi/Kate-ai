@@ -1294,15 +1294,22 @@ body[data-theme="dark"] .send-button {
 
 
 
-/* Левое меню поверх переключателя режимов */
-#menu,
-.sidebar,
-.side-menu,
+/* Исправление слоёв меню и переключателя */
 .menu-overlay {
-    z-index: 10000 !important;
+  z-index: 9998 !important;
 }
 
-/* Переключатель режимов под меню */
+.side-menu {
+  z-index: 9999 !important;
+}
+
+/* Переключатель режимов */
 .katya-mode-switcher {
-    z-index: 1 !important;
+  z-index: 1 !important;
+}
+
+/* Меню поверх верхней и нижней панелей */
+.side-menu,
+.menu-overlay {
+  isolation: isolate;
 }
