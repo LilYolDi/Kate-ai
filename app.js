@@ -83,7 +83,7 @@ function createKatyaModeSwitcher() {
       top: 70px;
       left: 50%;
       transform: translateX(-50%);
-      z-index: 99990;
+      z-index: 100;
 
       display: flex;
       align-items: center;
