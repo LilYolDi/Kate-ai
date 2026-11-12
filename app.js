@@ -71,6 +71,7 @@ function saveKatyaMode() {
 }
 
 
+
 function createKatyaModeSwitcher() {
   if (document.getElementById("katyaModeSwitcher")) return;
 
@@ -87,17 +88,17 @@ function createKatyaModeSwitcher() {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 5px;
+      gap: 2px;
 
-      padding: 5px;
-      border-radius: 30px;
+      padding: 3px;
+      border-radius: 22px;
       background: rgba(25, 18, 29, .96);
       border: 1px solid rgba(255,255,255,.15);
-      box-shadow: 0 4px 18px rgba(0,0,0,.3);
+      box-shadow: 0 3px 12px rgba(0,0,0,.25);
       backdrop-filter: blur(12px);
 
       width: max-content;
-      max-width: calc(100vw - 24px);
+      max-width: calc(100vw - 110px);
       box-sizing: border-box;
 
       touch-action: pan-y;
@@ -108,27 +109,27 @@ function createKatyaModeSwitcher() {
     }
 
     #katyaModeSwitcher button {
-      flex: 0 0 auto;
+      flex: 1 1 auto;
+      min-width: 0;
       border: none;
-      border-radius: 24px;
-      padding: 9px 13px;
+      border-radius: 18px;
+      padding: 7px 6px;
       background: transparent;
       color: #ddd;
-      font-size: 12px;
+      font-size: 10px;
       font-weight: 600;
       white-space: nowrap;
       cursor: pointer;
       transition:
         background .2s ease,
-        transform .2s ease,
-        opacity .2s ease;
+        transform .2s ease;
       -webkit-tap-highlight-color: transparent;
     }
 
     #katyaModeSwitcher button.active {
       background: linear-gradient(135deg, #ff75b5, #e83e91);
       color: white;
-      box-shadow: 0 2px 9px rgba(232, 62, 145, .25);
+      box-shadow: 0 2px 7px rgba(232, 62, 145, .25);
     }
 
     #katyaModeSwitcher button.active[data-mode="bdsm"] {
@@ -145,13 +146,14 @@ function createKatyaModeSwitcher() {
 
     @media (max-width: 420px) {
       #katyaModeSwitcher {
-        gap: 3px;
-        padding: 4px;
+        max-width: calc(100vw - 100px);
+        gap: 1px;
+        padding: 3px;
       }
 
       #katyaModeSwitcher button {
-        padding: 9px 10px;
-        font-size: 10px;
+        padding: 7px 5px;
+        font-size: 9px;
       }
     }
   `;
@@ -162,29 +164,30 @@ function createKatyaModeSwitcher() {
   switcher.id = "katyaModeSwitcher";
 
   switcher.innerHTML = `
-    <button type="button" data-mode="normal">
-      ❤️ Обычная Катя
+    <button type="button" data-mode="normal"
+      aria-label="Обычная Катя">
+      ❤️ Обычная
     </button>
 
-    <button type="button" data-mode="bdsm">
-      👠 Катя BDSM
+    <button type="button" data-mode="bdsm"
+      aria-label="Катя BDSM">
+      👠 BDSM
     </button>
 
-    <button type="button" data-mode="wife">
-      💍 Катя Жена
+    <button type="button" data-mode="wife"
+      aria-label="Катя Жена">
+      💍 Жена
     </button>
   `;
 
   document.body.appendChild(switcher);
 
-  // Обычное нажатие на режим.
   switcher.querySelectorAll("button").forEach(button => {
     button.addEventListener("click", () => {
       changeKatyaMode(button.dataset.mode);
     });
   });
 
-  // Свайп только внутри переключателя режимов.
   const modes = ["normal", "bdsm", "wife"];
 
   let startX = 0;
@@ -230,10 +233,8 @@ function createKatyaModeSwitcher() {
     let nextIndex = currentIndex;
 
     if (deltaX < 0) {
-      // Свайп влево — следующий режим.
       nextIndex = Math.min(currentIndex + 1, modes.length - 1);
     } else {
-      // Свайп вправо — предыдущий режим.
       nextIndex = Math.max(currentIndex - 1, 0);
     }
 
@@ -257,7 +258,6 @@ function createKatyaModeSwitcher() {
     activePointer = null;
   });
 
-  // Не допускаем случайного нажатия на кнопку после свайпа.
   switcher.addEventListener("click", event => {
     if (!suppressClick) return;
 
@@ -275,6 +275,7 @@ function createKatyaModeSwitcher() {
 
   updateKatyaModeSwitcher();
 }
+
 
 
 function updateKatyaModeSwitcher() {
