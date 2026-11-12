@@ -42,6 +42,7 @@ let lastLaunchTime = 0;
 const AUDIO_BUFFER_SECONDS = 0.20;
 const AUDIO_MIN_AHEAD_SECONDS = 0.06;
 
+
 // =====================================================
 // РЕЖИМЫ КАТИ
 // =====================================================
@@ -49,7 +50,12 @@ const AUDIO_MIN_AHEAD_SECONDS = 0.06;
 const KATYA_MODE_STORAGE_KEY = "katya_ai_mode_v1";
 
 function normalizeKatyaMode(value) {
-  return value === "bdsm" ? "bdsm" : "normal";
+  const mode = String(value || "").trim().toLowerCase();
+
+  if (mode === "bdsm") return "bdsm";
+  if (mode === "wife") return "wife";
+
+  return "normal";
 }
 
 let katyaMode = normalizeKatyaMode(
@@ -105,8 +111,24 @@ function createKatyaModeSwitcher() {
       color: white;
     }
 
-    #katyaModeSwitcher button.active.b bdsm {
+    #katyaModeSwitcher button.active[data-mode="bdsm"] {
       background: linear-gradient(135deg, #9b174b, #e00055);
+    }
+
+    #katyaModeSwitcher button.active[data-mode="wife"] {
+      background: linear-gradient(135deg, #9b285e, #e34b91);
+    }
+
+    @media (max-width: 420px) {
+      #katyaModeSwitcher {
+        gap: 2px;
+        padding: 4px;
+      }
+
+      #katyaModeSwitcher button {
+        padding: 8px 9px;
+        font-size: 10px;
+      }
     }
   `;
 
@@ -119,8 +141,13 @@ function createKatyaModeSwitcher() {
     <button type="button" data-mode="normal">
       ❤️ Обычная Катя
     </button>
+
     <button type="button" data-mode="bdsm">
       👠 Катя BDSM
+    </button>
+
+    <button type="button" data-mode="wife">
+      💍 Катя Жена
     </button>
   `;
 
@@ -155,15 +182,17 @@ function changeKatyaMode(newMode) {
   const wasVoiceActive = voiceActive || voiceStarting;
 
   katyaMode = newMode;
+
   saveKatyaMode();
   updateKatyaModeSwitcher();
 
-  addMessage(
-    katyaMode === "bdsm"
-      ? "Режим изменён. Теперь я Госпожа Катя. 👠"
-      : "Режим изменён. Я снова обычная Катя. ❤️",
-    "katya"
-  );
+  const notifications = {
+    normal: "Режим изменён. Я снова обычная Катя. ❤️",
+    bdsm: "Режим изменён. Теперь я Госпожа Катя. 👠",
+    wife: "Режим изменён. Теперь я Катя Жена. 💍"
+  };
+
+  addMessage(notifications[katyaMode] || notifications.normal, "katya");
 
   if (wasVoiceActive) {
     stopVoiceMode();
@@ -177,6 +206,7 @@ function changeKatyaMode(newMode) {
     }, 400);
   }
 }
+
 
 // =====================================================
 // ГОЛОСОВАЯ АКТИВАЦИЯ
