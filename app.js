@@ -70,6 +70,7 @@ function saveKatyaMode() {
   }
 }
 
+
 function createKatyaModeSwitcher() {
   if (document.getElementById("katyaModeSwitcher")) return;
 
@@ -82,19 +83,32 @@ function createKatyaModeSwitcher() {
       left: 50%;
       transform: translateX(-50%);
       z-index: 99990;
+
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 5px;
+
       padding: 5px;
       border-radius: 30px;
       background: rgba(25, 18, 29, .96);
       border: 1px solid rgba(255,255,255,.15);
       box-shadow: 0 4px 18px rgba(0,0,0,.3);
       backdrop-filter: blur(12px);
-      max-width: calc(100vw - 20px);
+
+      width: max-content;
+      max-width: calc(100vw - 24px);
+      box-sizing: border-box;
+
+      touch-action: pan-y;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: contain;
     }
 
     #katyaModeSwitcher button {
+      flex: 0 0 auto;
       border: none;
       border-radius: 24px;
       padding: 9px 13px;
@@ -104,11 +118,17 @@ function createKatyaModeSwitcher() {
       font-weight: 600;
       white-space: nowrap;
       cursor: pointer;
+      transition:
+        background .2s ease,
+        transform .2s ease,
+        opacity .2s ease;
+      -webkit-tap-highlight-color: transparent;
     }
 
     #katyaModeSwitcher button.active {
       background: linear-gradient(135deg, #ff75b5, #e83e91);
       color: white;
+      box-shadow: 0 2px 9px rgba(232, 62, 145, .25);
     }
 
     #katyaModeSwitcher button.active[data-mode="bdsm"] {
@@ -119,14 +139,18 @@ function createKatyaModeSwitcher() {
       background: linear-gradient(135deg, #9b285e, #e34b91);
     }
 
+    #katyaModeSwitcher button:active {
+      transform: scale(.96);
+    }
+
     @media (max-width: 420px) {
       #katyaModeSwitcher {
-        gap: 2px;
+        gap: 3px;
         padding: 4px;
       }
 
       #katyaModeSwitcher button {
-        padding: 8px 9px;
+        padding: 9px 10px;
         font-size: 10px;
       }
     }
@@ -153,14 +177,105 @@ function createKatyaModeSwitcher() {
 
   document.body.appendChild(switcher);
 
+  // Обычное нажатие на режим.
   switcher.querySelectorAll("button").forEach(button => {
     button.addEventListener("click", () => {
       changeKatyaMode(button.dataset.mode);
     });
   });
 
+  // Свайп только внутри переключателя режимов.
+  const modes = ["normal", "bdsm", "wife"];
+
+  let startX = 0;
+  let startY = 0;
+  let activePointer = null;
+  let suppressClick = false;
+  let suppressTimer = null;
+
+  switcher.addEventListener("pointerdown", event => {
+    if (activePointer !== null) return;
+
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+
+    activePointer = event.pointerId;
+    startX = event.clientX;
+    startY = event.clientY;
+
+    try {
+      switcher.setPointerCapture(event.pointerId);
+    } catch (error) {}
+  });
+
+  switcher.addEventListener("pointerup", event => {
+    if (event.pointerId !== activePointer) return;
+
+    const deltaX = event.clientX - startX;
+    const deltaY = event.clientY - startY;
+
+    activePointer = null;
+
+    const horizontalSwipe =
+      Math.abs(deltaX) >= 45 &&
+      Math.abs(deltaX) > Math.abs(deltaY) * 1.3;
+
+    if (!horizontalSwipe) return;
+
+    const currentIndex = modes.indexOf(katyaMode);
+
+    if (currentIndex === -1) return;
+
+    let nextIndex = currentIndex;
+
+    if (deltaX < 0) {
+      // Свайп влево — следующий режим.
+      nextIndex = Math.min(currentIndex + 1, modes.length - 1);
+    } else {
+      // Свайп вправо — предыдущий режим.
+      nextIndex = Math.max(currentIndex - 1, 0);
+    }
+
+    if (nextIndex === currentIndex) return;
+
+    suppressClick = true;
+
+    if (suppressTimer) {
+      clearTimeout(suppressTimer);
+    }
+
+    suppressTimer = setTimeout(() => {
+      suppressClick = false;
+      suppressTimer = null;
+    }, 500);
+
+    changeKatyaMode(modes[nextIndex]);
+  });
+
+  switcher.addEventListener("pointercancel", () => {
+    activePointer = null;
+  });
+
+  // Не допускаем случайного нажатия на кнопку после свайпа.
+  switcher.addEventListener("click", event => {
+    if (!suppressClick) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+
+    suppressClick = false;
+
+    if (suppressTimer) {
+      clearTimeout(suppressTimer);
+      suppressTimer = null;
+    }
+  }, true);
+
   updateKatyaModeSwitcher();
 }
+
 
 function updateKatyaModeSwitcher() {
   const switcher = document.getElementById("katyaModeSwitcher");
